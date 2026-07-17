@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "task": { "id": "TASK-123" },
+  "change": {
+    "commitSha": "0123456789abcdef0123456789abcdef01234567",
+    "associatedTaskIds": []
+  },
+  "ci": {
+    "checks": [{ "name": "test", "status": "in_progress", "conclusion": "pending" }]
+  },
+  "testReport": { "path": "artifacts/test-report.json", "exists": false }
+}

@@ -5,12 +5,11 @@
   "type": "module",
   "private": true,
   "bin": {
-    "gate": "bin/gate.mjs"
+    "github-actions-gate": "bin/github-actions-gate.js"
   },
   "scripts": {
-    "test": "node --test test/",
-    "example:pass": "node bin/gate.mjs fixtures/pass.json",
-    "example:fail": "node bin/gate.mjs fixtures/fail.json"
+    "test": "node --test test/*.test.js",
+    "example:offline": "node examples/offline.js"
   },
   "engines": {
     "node": ">=20"
