@@ -1,0 +1,19 @@
+{
+  "name": "github-actions-gate",
+  "version": "0.1.0",
+  "description": "GitHub Actions Gate — verifies that a delivery (task + commit + CI run + test report) satisfies every release gate rule.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "gate": "bin/gate.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "example:pass": "node bin/gate.mjs fixtures/pass.json",
+    "example:fail": "node bin/gate.mjs fixtures/fail.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
