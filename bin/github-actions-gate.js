@@ -2,21 +2,27 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { evaluate, normalizeInput } from '../lib/evaluator.js';
+import { collectGitHubInput } from '../lib/github.js';
 
 const usage = `Usage:
   github-actions-gate evaluate --input <path|-> [--output <path>] [--json] [--quiet]
+  github-actions-gate github --repo <owner/repo> --task <id> --sha <sha> [--report <artifact-name>] [--output <path>] [--json] [--quiet]
   github-actions-gate --help
   github-actions-gate --version`;
 
 function parse(args) {
   if (args.length === 1 && args[0] === '--help') return { special: usage };
   if (args.length === 1 && args[0] === '--version') return { special: '0.1.0' };
-  if (args.shift() !== 'evaluate') throw new Error('Expected evaluate command');
-  const result = { json: false, quiet: false };
+  const command = args.shift();
+  if (!['evaluate', 'github'].includes(command)) throw new Error('Expected evaluate or github command');
+  const allowed = command === 'evaluate'
+    ? ['--input', '--output', '--json', '--quiet']
+    : ['--repo', '--task', '--sha', '--report', '--output', '--json', '--quiet'];
+  const result = { command, json: false, quiet: false };
   const seen = new Set();
   while (args.length) {
     const flag = args.shift();
-    if (!['--input', '--output', '--json', '--quiet'].includes(flag)) throw new Error(`Unknown flag: ${flag}`);
+    if (!allowed.includes(flag)) throw new Error(`Unknown flag: ${flag}`);
     if (seen.has(flag)) throw new Error(`Duplicate flag: ${flag}`);
     seen.add(flag);
     if (flag === '--json') result.json = true;
@@ -26,7 +32,10 @@ function parse(args) {
       result[flag.slice(2)] = args.shift();
     }
   }
-  if (!result.input) throw new Error('--input is required');
+  if (command === 'evaluate' && !result.input) throw new Error('--input is required');
+  if (command === 'github') {
+    for (const name of ['repo', 'task', 'sha']) if (!result[name]) throw new Error(`--${name} is required`);
+  }
   if (result.json && result.quiet) throw new Error('--json and --quiet are mutually exclusive');
   return result;
 }
@@ -44,14 +53,20 @@ try {
     console.log(options.special);
     process.exit(0);
   }
-  const raw = options.input === '-' ? await new Promise((resolve, reject) => {
-    let data = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', chunk => { data += chunk; });
-    process.stdin.on('end', () => resolve(data));
-    process.stdin.on('error', reject);
-  }) : await readFile(options.input, 'utf8');
-  const report = evaluate(normalizeInput(JSON.parse(raw)));
+  let input;
+  if (options.command === 'github') {
+    input = await collectGitHubInput({ ...options, token: process.env.GITHUB_TOKEN });
+  } else {
+    const raw = options.input === '-' ? await new Promise((resolve, reject) => {
+      let data = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', chunk => { data += chunk; });
+      process.stdin.on('end', () => resolve(data));
+      process.stdin.on('error', reject);
+    }) : await readFile(options.input, 'utf8');
+    input = JSON.parse(raw);
+  }
+  const report = evaluate(normalizeInput(input));
   const json = `${JSON.stringify(report, null, 2)}\n`;
   if (options.output) {
     await mkdir(dirname(options.output), { recursive: true });

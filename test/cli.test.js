@@ -39,6 +39,14 @@ test('invalid JSON, schema, usage, and conflicting flags exit 2', () => {
   ]) assert.equal(result.status, 2);
 });
 
+test('GitHub mode requires GITHUB_TOKEN', () => {
+  const result = run([
+    'github', '--repo', 'acme/widget', '--task', 'TASK-42', '--sha', 'a'.repeat(40)
+  ], { env: { ...process.env, GITHUB_TOKEN: '' } });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /GITHUB_TOKEN is required/);
+});
+
 test('help and version exit 0', () => {
   assert.match(execFileSync(process.execPath, [cli.pathname, '--help'], { encoding: 'utf8' }), /Usage:/);
   assert.equal(execFileSync(process.execPath, [cli.pathname, '--version'], { encoding: 'utf8' }).trim(), '0.1.0');

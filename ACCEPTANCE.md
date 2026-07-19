@@ -1,8 +1,8 @@
 # Acceptance Audit
 
-Status: FAIL
+Status: PASS
 
-Audit time: 2026-07-18T15:16:33+00:00
+Audit time: 2026-07-19T11:51:42+00:00
 Auditor: live
 
 ## Scope inspected
@@ -15,16 +15,13 @@ Present and inspected:
 - `package.json`
 - `bin/github-actions-gate.js`
 - `lib/evaluator.js`
+- `lib/github.js`
 - PASS/FAIL fixtures
-- CLI and evaluator tests
+- CLI, evaluator, and GitHub collector tests
 - offline example
 - `README.md`
-
-Missing:
-
 - Dockerfile
 - GitHub Actions usage example
-- GitHub API mode documented by `PRODUCT_SPEC.md`
 
 ## Execution evidence
 
@@ -38,38 +35,60 @@ Environment:
 
 Result: PASS (exit code 0)
 
-- 10 tests
-- 10 passed
+- 14 tests
+- 14 passed
 - 0 failed
-- Duration: 923 ms
+- Duration: 978 ms
 
-Verified behavior includes all four rules, aggregate verdicts, file/stdin input, deterministic JSON, output-file creation, exit codes 0/1/2, invalid input, conflicting flags, help, and version.
+Verified behavior includes all four rules, file/stdin input, output files, exit codes 0/1/2, GitHub collection success, API permission failure, missing checks/artifacts, and missing `GITHUB_TOKEN`.
 
 ### `npm run example:offline`
 
 Result: PASS (exit code 0)
 
-- PASS fixture: 4/4 rules passed; evaluated gate exit code 0.
-- FAIL fixture: 1/4 rules passed; evaluated gate exit code 1.
-- Failure output reports task association, CI state, and missing test-report evidence without short-circuiting.
+- PASS fixture: 4/4 rules passed; gate exit code 0.
+- FAIL fixture: 1/4 rules passed; gate exit code 1.
+
+### Static checks
+
+Result: PASS (exit code 0)
+
+- `node --check bin/github-actions-gate.js`
+- `node --check lib/evaluator.js`
+- `node --check lib/github.js`
+- `git diff --check`
+
+### Docker packaging
+
+Result: PASS (exit code 0)
+
+- `docker build -t github-actions-gate:acceptance .`
+- Image: `sha256:f559b3a2d1baee2b330b830707541972975ae60f3fa8dfb8a6580d1611402763`
+- `docker run --rm github-actions-gate:acceptance evaluate --input fixtures/pass.json --quiet`
+
+### GitHub Actions example
+
+Result: PASS
+
+- `.github/workflows/gate.yml` parses as YAML and defines the `gate` job.
+- The job runs tests, the offline example, a Docker build, and the PASS fixture in the container.
+- No external GitHub API call was made during acceptance.
 
 ## Acceptance results
 
 | Requirement | Verdict | Evidence |
 | --- | --- | --- |
-| Product specification exists | PASS | `PRODUCT_SPEC.md` defines users, workflow, non-goals, contracts, four rules, failure example, and checklist. |
-| Node.js ESM evaluator and CLI | PASS | `package.json`, `bin/github-actions-gate.js`, and `lib/evaluator.js`. |
-| Four deterministic rules | PASS | All four are implemented and covered by `test/evaluator.test.js`. |
-| Machine and terminal reports | PASS | CLI supports human and JSON output; tests verify JSON and output files. |
-| Offline fixtures and example | PASS | Both fixtures run through `npm run example:offline`. |
-| Automated tests | PASS | Real run: 10/10 passed. |
-| GitHub API mode | FAIL | CLI implements only `evaluate`; no `github` command or `GITHUB_TOKEN` collector exists. |
-| Docker packaging | FAIL | No Dockerfile exists. |
-| GitHub Actions usage | FAIL | No workflow or action example exists. |
-| README usage | FAIL | `README.md` is only a three-line summary and does not document the implemented CLI. |
+| Product specification exists | PASS | `PRODUCT_SPEC.md` defines users, workflow, contracts, four rules, and checklist. |
+| Node.js ESM evaluator and CLI | PASS | `package.json`, CLI, evaluator, and collector modules. |
+| Four deterministic rules | PASS | Covered by evaluator tests. |
+| Machine and terminal reports | PASS | CLI tests verify JSON, human output, and output files. |
+| Offline fixtures and example | PASS | Real `npm run example:offline` execution. |
+| Automated tests | PASS | Real run: 14/14 passed. |
+| GitHub API mode | PASS | `github` command and `GITHUB_TOKEN` collector; tests cover success, 403, missing evidence, and missing token. |
+| README usage | PASS | Documents offline/GitHub commands and exact `Task-ID:` trailer linkage. |
+| Docker packaging | PASS | Image built and the PASS fixture exited 0 in the container. |
+| GitHub Actions usage | PASS | `.github/workflows/gate.yml` is valid YAML and exercises tests, example, build, and container run. |
 
 ## Decision
 
-Core offline evaluator: accepted.
-
-Repository MVP: rejected because the repository does not yet satisfy its own definition of done. GitHub API mode, Docker packaging, GitHub Actions usage, and usable README documentation remain absent.
+Repository MVP: accepted. All documented definition-of-done requirements passed local verification.

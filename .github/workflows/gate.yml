@@ -1,0 +1,21 @@
+name: gate
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+      - run: npm run example:offline
+      - run: |
+          docker build --tag github-actions-gate:ci .
+          docker run --rm github-actions-gate:ci evaluate --input fixtures/pass.json --quiet
