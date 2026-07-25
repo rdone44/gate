@@ -26,7 +26,7 @@ The product supports exactly one workflow:
 6. The CLI optionally writes the JSON report to a file.
 7. The process exits with a stable exit code.
 
-Offline mode uses caller-provided JSON only. GitHub mode may collect the same input fields from the GitHub API using `GITHUB_TOKEN`, but it must feed the collected data into the identical evaluator. There is no separate policy engine for GitHub mode.
+v0.1.x is offline-only: the caller supplies a JSON evaluation document; the CLI evaluates it and emits a verdict. A network-enabled GitHub collector mode is planned for v0.2.0 (see §16).
 
 ## 4. Non-goals
 
@@ -51,7 +51,7 @@ The MVP does not:
 - CLI entry point: `bin/github-actions-gate.js`.
 - Evaluator: deterministic and side-effect free after input normalization.
 - Output encoding: UTF-8 JSON.
-- Network access: forbidden in offline mode; optional in GitHub mode.
+- Network access: forbidden (v0.1.x is offline-only; GitHub collector is v0.2.0).
 - Dependencies: prefer Node.js standard library. A dependency is allowed only when the platform cannot provide the required behavior directly.
 
 ## 6. JSON input contract
@@ -124,7 +124,7 @@ PASS when `change.commitSha` is exactly 40 hexadecimal characters and is not the
 
 FAIL when the SHA is all zero.
 
-A malformed SHA is rejected earlier as an input error. In GitHub mode, collection must only populate this field after GitHub confirms that the commit exists in the requested repository.
+A malformed SHA is rejected earlier as an input error.
 
 ### Rule 3: `ci-passes`
 
@@ -141,7 +141,7 @@ PASS when `testReport.exists` is exactly `true` and `testReport.path` is non-emp
 
 FAIL otherwise.
 
-The evaluator does not infer report existence from passing CI. In offline mode the boolean is authoritative caller-provided evidence. In GitHub mode the collector must set it only after finding the named artifact or report.
+The evaluator does not infer report existence from passing CI. In v0.1.x the boolean is authoritative caller-provided evidence.
 
 ## 8. Overall verdict
 
@@ -253,14 +253,13 @@ FAIL test-report-exists: Test report does not exist at artifacts/test-report.jso
 
 ```text
 github-actions-gate evaluate --input <path|-> [--output <path>] [--json] [--quiet]
-github-actions-gate github --repo <owner/repo> --task <id> --sha <sha> [--report <artifact-name>] [--output <path>] [--json] [--quiet]
 github-actions-gate --help
 github-actions-gate --version
 ```
 
-`evaluate` is the required offline command.
+`evaluate` is the offline command and the only command in v0.1.x.
 
-`github` is the optional network collector. It requires `GITHUB_TOKEN`, retrieves evidence for the named repository and SHA, constructs the canonical input, and invokes the same evaluator.
+A `github` network collector is planned for v0.2.0 (see §16).
 
 ### 11.2 Options
 
@@ -269,10 +268,6 @@ github-actions-gate --version
 - `--output <path>` writes the machine-readable report, creating parent directories when necessary.
 - `--json` writes the JSON report to standard output instead of the human summary.
 - `--quiet` suppresses standard output; errors still use standard error.
-- `--repo <owner/repo>` selects the GitHub repository in `github` mode.
-- `--task <id>` sets the required task identifier in `github` mode.
-- `--sha <sha>` selects the commit in `github` mode.
-- `--report <artifact-name>` names the required test-report artifact in `github` mode.
 - `--help` prints usage and exits `0`.
 - `--version` prints the package version and exits `0`.
 
@@ -292,9 +287,21 @@ github-actions-gate --version
 | --- | --- |
 | `0` | All four deterministic rules pass, or help/version completed. |
 | `1` | Valid input evaluated; one or more gate rules failed. |
-| `2` | Usage, input, schema, authentication, filesystem, network, or GitHub API error. |
+| `2` | Usage, input, schema, or filesystem error. |
 
-## 12. GitHub mode contract
+## 12. v0.1.x scope boundary
+
+v0.1.x implements offline `evaluate` only. The following are explicitly out of scope for v0.1.x and deferred to v0.2.0:
+
+- the `github` command and `--repo/--task/--sha/--report` flags;
+- network access of any kind;
+- `GITHUB_TOKEN` handling;
+- GitHub API collection, pagination, or rate-limit handling;
+- the GitHub mode contract previously documented in this section (moved to §16).
+
+## 16. v0.2.0 — GitHub collector mode (planned)
+
+The following GitHub mode contract is deferred to v0.2.0 and documented here for forward reference only. It must not be implemented or advertised as part of v0.1.x.
 
 GitHub mode must:
 
