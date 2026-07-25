@@ -27,10 +27,7 @@ jobs:
         name: FAIL fixture (JSON) — exit 1 expected, non-zero proves rejection
         continue-on-error: true
 
-      - run: |
-          node bin/gate.mjs fixtures/fail.json --json; \
-          if [ $? -eq 1 ]; then echo "FAIL fixture correctly rejected (exit 1)"; exit 0; \
-          else echo "ERROR: expected exit 1"; exit 1; fi
+      - run: node bin/gate.mjs fixtures/fail.json --json && exit 1 || exit 0
         name: Verify FAIL fixture exits 1
 
       - run: docker build -t github-actions-gate:ci .
