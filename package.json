@@ -5,11 +5,10 @@
   "type": "module",
   "private": true,
   "bin": {
-    "github-actions-gate": "bin/github-actions-gate.js"
+    "github-actions-gate": "bin/gate.mjs"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "example:offline": "node examples/offline.js"
+    "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=20"

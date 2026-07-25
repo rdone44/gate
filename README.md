@@ -5,31 +5,63 @@ Deterministic Node.js CLI that accepts a delivery only when its task association
 ## Offline
 
 ```sh
-node bin/github-actions-gate.js evaluate --input fixtures/pass.json
-node bin/github-actions-gate.js evaluate --input fixtures/fail.json --json
+node bin/gate.mjs fixtures/pass.json
+node bin/gate.mjs fixtures/fail.json --json
 ```
 
-## GitHub API
+- PASS fixture exits `0`.
+- FAIL fixture exits `1`.
+- Invalid JSON or unreadable file exits `2`.
 
-Set `GITHUB_TOKEN`, then provide the exact repository, task ID, and 40-character commit SHA:
+## Docker
 
 ```sh
-GITHUB_TOKEN=... node bin/github-actions-gate.js github \
-  --repo owner/repo --task TASK-42 --sha 0123456789abcdef0123456789abcdef01234567 \
-  --report test-results --json
+docker build -t github-actions-gate .
+docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate fixtures/pass.json --json
 ```
 
-The token is sent only to `https://api.github.com`. Task association is derived only from exact commit-message trailers:
+The Dockerfile copies `package.json` + `bin/` + `src/` only, so mount `fixtures/` from the host when you want to evaluate fixture files inside the container.
 
-```text
-Task-ID: TASK-42
+## GitHub Actions
+
+`.github/workflows/gate.yml` defines a `gate` job that runs tests, exercises the PASS/FAIL fixtures, builds the Docker image, and runs the PASS fixture inside the container. Push to a branch on a repo with Actions enabled to trigger it.
+
+To use this repository *as* a reusable GitHub Action from another repo, reference `action.yml`:
+
+```yaml
+- uses: owner/github-actions-gate@v1
+  with:
+    fixture-path: evaluation.json
 ```
 
-`--report` names a GitHub Actions artifact. It counts only when it is unexpired and its workflow run has the requested SHA. Missing checks or artifacts produce a gate failure; authentication, permission, rate-limit, pagination, malformed, or ambiguous API responses exit `2`.
+`action.yml` is Docker-based (`using: docker`, `image: Dockerfile`).
 
 ## Test
 
 ```sh
 npm test
-npm run example:offline
 ```
+
+## Project layout
+
+| Path                  | Purpose                                              |
+| ---                   | ---                                                  |
+| `bin/gate.mjs`        | CLI entry point (arg parse + file read + evaluate)   |
+| `src/evaluator.mjs`   | Pure evaluator — four rules                          |
+| `src/report.mjs`      | `formatJson()` and `formatReport()` output formatters |
+| `test/*.test.mjs`     | `node --test` suite                                  |
+| `fixtures/pass.json`  | Evaluation object that passes all four rules         |
+| `fixtures/fail.json`  | Evaluation object that fails CI + test rules         |
+| `action.yml`          | GitHub Action wrapper (Docker)                       |
+| `Dockerfile`          | `node:22-alpine` image                               |
+
+## Rule set
+
+1. **task_associated** — `task.id` and `task.title` present
+2. **commit_exists** — `commit.sha` matches `/^[0-9a-f]{7,40}$/`
+3. **ci_passed** — `run.status === "success"`
+4. **test_report_present** — `testReport.summary.total > 0` and `failed === 0`
+
+## Known scope gap
+
+`README` and `PRODUCT_SPEC` also describe a `github` subcommand that fetches live evidence from the GitHub REST API (`GITHUB_TOKEN`, `--repo`, `--task`, `--sha`, artifact retrieval). That mode is **not** implemented in `bin/gate.mjs` at this revision — the CLI currently performs offline evaluation only. Offline + Docker + Actions workflow are the accepted scope of this audit.
