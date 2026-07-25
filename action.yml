@@ -1,0 +1,11 @@
+name: "GitHub Actions Gate"
+description: "Deterministic acceptance gate — verifies task + commit + CI + test report before delivery."
+inputs:
+  fixture-path:
+    description: "Path to evaluation JSON"
+    required: true
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  args:
+    - ${{ inputs.fixture-path }}

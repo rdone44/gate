@@ -1,12 +1,20 @@
 {
-  "schemaVersion": 1,
-  "task": { "id": "TASK-123" },
-  "change": {
-    "commitSha": "0123456789abcdef0123456789abcdef01234567",
-    "associatedTaskIds": []
+  "commit": {
+    "sha": "deadbee"
   },
-  "ci": {
-    "checks": [{ "name": "test", "status": "in_progress", "conclusion": "pending" }]
+  "run": {
+    "id": 123457,
+    "status": "failure"
   },
-  "testReport": { "path": "artifacts/test-report.json", "exists": false }
+  "task": {
+    "id": "TASK-43",
+    "title": "\u4fee\u590d\u652f\u4ed8bug"
+  },
+  "testReport": {
+    "summary": {
+      "failed": 2,
+      "passed": 6,
+      "total": 8
+    }
+  }
 }
