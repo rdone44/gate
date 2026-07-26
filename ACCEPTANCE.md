@@ -43,22 +43,19 @@ Result: PASS (exit code 0)
 ℹ duration_ms 206.083688
 ```
 
-Verified behavior: all four rules, pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `结论`, `formatJson` output parsing as valid JSON.
+Verified behavior: all four rules, pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON."
 
 ### CLI fixtures (local, real command runs)
 
 PASS fixture:
 
 ```
-$ node bin/gate.mjs fixtures/pass.json
-GitHub Actions Gate — 验收结果
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✓ 任务关联 (task_associated): task TASK-42 — 实现登录页
-  ✓ 提交存在 (commit_exists): commit a1b2c3d
-  ✓ CI通过 (ci_passed): run status = success
-  ✓ 测试报告存在 (test_report_present): 10 tests, 10 passed, 0 failed
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-结论: ✓ 通过
+$ node bin/gate.mjs evaluate --input fixtures/pass.json
+PASS github-actions-gate: 4/4 rules passed
+PASS task-associated: Task TASK-123 is associated with the change.
+PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+PASS ci-passes: All 1 CI check completed successfully.
+PASS test-report-exists: Test report exists at artifacts/test-report.json.
 $ echo $?
 0
 ```
@@ -66,15 +63,12 @@ $ echo $?
 FAIL fixture:
 
 ```
-$ node bin/gate.mjs fixtures/fail.json
-GitHub Actions Gate — 验收结果
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✓ 任务关联 (task_associated): task TASK-43 — 修复支付bug
-  ✓ 提交存在 (commit_exists): commit deadbee
-  ✗ CI通过 (ci_passed): run status = failure
-  ✗ 测试报告存在 (test_report_present): test report missing or no tests or has failures
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-结论: ✗ 拒绝
+$ node bin/gate.mjs evaluate --input fixtures/fail.json
+FAIL github-actions-gate: 1/4 rules passed
+FAIL task-associated: Task TASK-123 is not associated with the change.
+PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+FAIL ci-passes: CI check test is not successful: status=in_progress, conclusion=null.
+FAIL test-report-exists: Test report does not exist at artifacts/test-report.json.
 $ echo $?
 1
 ```
@@ -82,15 +76,38 @@ $ echo $?
 JSON output:
 
 ```
-$ node bin/gate.mjs fixtures/pass.json --json
+$ node bin/gate.mjs evaluate --input fixtures/pass.json --json
 {
-  "verdict": "accepted",
-  "timestamp": "2026-07-25T13:19:40.133Z",
+  "schemaVersion": 1,
+  "verdict": "PASS",
+  "taskId": "TASK-123",
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "summary": {
+    "passed": 4,
+    "failed": 0,
+    "total": 4
+  },
   "rules": [
-    { "id": "task_associated", "name": "任务关联", "passed": true, "reason": "task TASK-42 — 实现登录页" },
-    { "id": "commit_exists", "name": "提交存在", "passed": true, "reason": "commit a1b2c3d" },
-    { "id": "ci_passed", "name": "CI通过", "passed": true, "reason": "run status = success" },
-    { "id": "test_report_present", "name": "测试报告存在", "passed": true, "reason": "10 tests, 10 passed, 0 failed" }
+    {
+      "id": "task-associated",
+      "verdict": "PASS",
+      "message": "Task TASK-123 is associated with the change."
+    },
+    {
+      "id": "commit-exists",
+      "verdict": "PASS",
+      "message": "Commit 0123456789abcdef0123456789abcdef01234567 exists."
+    },
+    {
+      "id": "ci-passes",
+      "verdict": "PASS",
+      "message": "All 1 CI check completed successfully."
+    },
+    {
+      "id": "test-report-exists",
+      "verdict": "PASS",
+      "message": "Test report exists at artifacts/test-report.json."
+    }
   ]
 }
 $ echo $?
@@ -110,16 +127,21 @@ $ docker build -t github-actions-gate:audit .
 Docker expects fixtures to be volume-mounted (Dockerfile only copies `package.json` + `bin/` + `src/`):
 
 ```
-$ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:audit fixtures/pass.json
-GitHub Actions Gate — 验收结果
-  ✓ 任务关联 …  ✓ 提交存在 …  ✓ CI通过 …  ✓ 测试报告存在 …
-结论: ✓ 通过
+$ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:audit evaluate --input fixtures/pass.json
+PASS github-actions-gate: 4/4 rules passed
+PASS task-associated: Task TASK-123 is associated with the change.
+PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+PASS ci-passes: All 1 CI check completed successfully.
+PASS test-report-exists: Test report exists at artifacts/test-report.json.
 $ echo $?
 0
 
-$ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:audit fixtures/fail.json
-  ✓ 任务关联 …  ✓ 提交存在 …  ✗ CI通过 …  ✗ 测试报告存在 …
-结论: ✗ 拒绝
+$ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:audit evaluate --input fixtures/fail.json
+FAIL github-actions-gate: 1/4 rules passed
+FAIL task-associated: Task TASK-123 is not associated with the change.
+PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+FAIL ci-passes: CI check test is not successful: status=in_progress, conclusion=null.
+FAIL test-report-exists: Test report does not exist at artifacts/test-report.json.
 $ echo $?
 1
 ```
@@ -142,8 +164,8 @@ No external GitHub API call is made by the workflow — it only exercises the of
 | Product specification exists                             | PASS    | `PRODUCT_SPEC.md` defines users, workflow, contracts, four rules, and checklist. |
 | Node.js ESM evaluator, CLI, and report formatter         | PASS    | `src/evaluator.mjs` (4 rules), `bin/gate.mjs`, `src/report.mjs`; `"type": "module"` in `package.json`. |
 | Four deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` — 10/10 pass. |
-| Machine and terminal reports                             | PASS    | `formatJson()` returns valid JSON; `formatReport()` returns human-readable text containing `结论`. Both exercised by tests + real CLI runs. |
-| Offline fixtures and example                             | PASS    | `fixtures/pass.json` exits 0; `fixtures/fail.json` exits 1; both verified via `node bin/gate.mjs`. |
+| Machine and terminal reports                             | PASS    | `formatJson()` returns valid JSON; `formatReport()` returns human-readable text containing `PASS`/`FAIL`. Both exercised by tests + real CLI runs. |
+| Offline fixtures and example                             | PASS    | `fixtures/pass.json` exits 0; `fixtures/fail.json` exits 1; both verified via `node bin/gate.mjs evaluate --input`. |
 | Automated tests                                          | PASS    | Real `npm test` run: 10/10 passed, 206 ms. |
 | Docker packaging                                         | PASS    | Image built; PASS fixture exits 0 in container; FAIL fixture exits 1. |
 | GitHub Actions usage                                     | PASS    | `.github/workflows/gate.yml` is valid YAML; defines `gate` job exercising tests, fixtures, and Docker build. Not yet run on hosted runners (no remote configured locally). |
