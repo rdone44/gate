@@ -1,78 +1,144 @@
 // src/evaluator.mjs
 // Pure evaluator for the GitHub Actions Gate.
-// Input:  { task, commit, run, testReport }
-// Output: { verdict, rules }
+// Input:  canonical evaluation document (SPEC §6).
+// Output: { schemaVersion, verdict, taskId, commitSha, summary, rules }
 
-export function evaluateEvaluation(input) {
-  if (!input || typeof input !== "object") {
-    throw new Error("evaluation must be an object");
+const ALL_ZERO_SHA = "0".repeat(40);
+const HEX40 = /^[0-9a-f]{40}$/;
+
+class InputError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "InputError";
+    this.isInputError = true;
   }
-  const { task, commit, run, testReport } = input;
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function assertInput(condition, message) {
+  if (!condition) throw new InputError(message);
+}
+
+// SPEC §6 schema validation. Invalid input is an input error, not a gate failure.
+export function validateInput(input) {
+  assertInput(input && typeof input === "object" && !Array.isArray(input), "input must be a JSON object");
+
+  assertInput(Number.isInteger(input.schemaVersion), "schemaVersion must be an integer");
+  assertInput(input.schemaVersion === 1, "schemaVersion must equal 1");
+
+  const task = input.task;
+  assertInput(task && typeof task === "object", "task must be an object");
+  assertInput(isNonEmptyString(task.id), "task.id must be a non-empty string");
+
+  const change = input.change;
+  assertInput(change && typeof change === "object", "change must be an object");
+  assertInput(typeof change.commitSha === "string" && HEX40.test(change.commitSha), "change.commitSha must be exactly 40 hexadecimal characters");
+  assertInput(change.commitSha !== ALL_ZERO_SHA, "change.commitSha must not be the all-zero SHA");
+  assertInput(Array.isArray(change.associatedTaskIds), "change.associatedTaskIds must be an array");
+  assertInput(change.associatedTaskIds.every((id) => typeof id === "string"), "change.associatedTaskIds items must be strings");
+
+  const ci = input.ci;
+  assertInput(ci && typeof ci === "object", "ci must be an object");
+  assertInput(Array.isArray(ci.checks), "ci.checks must be an array");
+  for (const [i, check] of ci.checks.entries()) {
+    assertInput(check && typeof check === "object", `ci.checks[${i}] must be an object`);
+    assertInput(isNonEmptyString(check.name), `ci.checks[${i}].name must be a non-empty string`);
+    assertInput(isNonEmptyString(check.status), `ci.checks[${i}].status must be a non-empty string`);
+    assertInput(isNonEmptyString(check.conclusion), `ci.checks[${i}].conclusion must be a non-empty string`);
+  }
+
+  const testReport = input.testReport;
+  assertInput(testReport && typeof testReport === "object", "testReport must be an object");
+  assertInput(isNonEmptyString(testReport.path), "testReport.path must be a non-empty string");
+  assertInput(typeof testReport.exists === "boolean", "testReport.exists must be a boolean");
+}
+
+// SPEC §7 — always returns all four rule results, never short-circuits.
+export function evaluate(input) {
+  validateInput(input);
+
+  const taskId = input.task.id;
+  const commitSha = input.change.commitSha;
+  const associatedTaskIds = input.change.associatedTaskIds;
+  const checks = input.ci.checks;
+  const testReport = input.testReport;
 
   const rules = [];
 
-  // Rule 1: task_associated
+  // Rule 1: task-associated — exact case-sensitive membership of task.id in associatedTaskIds.
   {
-    const passed = Boolean(task && task.id && task.title);
+    const passed = associatedTaskIds.includes(taskId);
     rules.push({
-      id: "task_associated",
-      name: "任务关联",
-      passed,
-      reason: passed
-        ? `task ${task.id} — ${task.title}`
-        : "task missing id or title",
+      id: "task-associated",
+      verdict: passed ? "PASS" : "FAIL",
+      message: passed
+        ? `Task ${taskId} is associated with the change.`
+        : `Task ${taskId} is not associated with the change.`,
     });
   }
 
-  // Rule 2: commit_exists
+  // Rule 2: commit-exists — validated as 40-hex non-zero at schema time; here it always PASSes.
+  // (A malformed or all-zero SHA is already rejected as an input error by validateInput.)
   {
-    const sha = commit && commit.sha;
-    const passed =
-      typeof sha === "string" && /^[0-9a-f]{7,40}$/.test(sha);
     rules.push({
-      id: "commit_exists",
-      name: "提交存在",
-      passed,
-      reason: passed ? `commit ${sha}` : "commit sha invalid or missing",
+      id: "commit-exists",
+      verdict: "PASS",
+      message: `Commit ${commitSha} exists.`,
     });
   }
 
-  // Rule 3: ci_passed
+  // Rule 3: ci-passes — at least one check, every check completed+success.
   {
-    const passed = Boolean(run && run.status === "success");
+    let passed = checks.length > 0;
+    let message;
+    if (passed) {
+      passed = checks.every((c) => c.status === "completed" && c.conclusion === "success");
+      if (passed) {
+        message = `All ${checks.length} CI check${checks.length === 1 ? "" : "s"} completed successfully.`;
+      } else {
+        const firstBad = checks.find((c) => !(c.status === "completed" && c.conclusion === "success"));
+        message = `CI check ${firstBad.name} is not successful: status=${firstBad.status}, conclusion=${firstBad.conclusion}.`;
+      }
+    } else {
+      message = "No CI checks were provided.";
+    }
     rules.push({
-      id: "ci_passed",
-      name: "CI通过",
-      passed,
-      reason: passed
-        ? "run status = success"
-        : `run status = ${run ? run.status : "missing"}`,
+      id: "ci-passes",
+      verdict: passed ? "PASS" : "FAIL",
+      message,
     });
   }
 
-  // Rule 4: test_report_present
+  // Rule 4: test-report-exists — boolean authoritative in v0.1.x.
   {
-    const s = testReport && testReport.summary;
-    const passed =
-      Boolean(s) && typeof s.total === "number" && s.total > 0 && s.failed === 0;
+    const passed = testReport.exists === true && isNonEmptyString(testReport.path);
     rules.push({
-      id: "test_report_present",
-      name: "测试报告存在",
-      passed,
-      reason: passed
-        ? `${s.total} tests, ${s.passed ?? 0} passed, 0 failed`
-        : "test report missing or no tests or has failures",
+      id: "test-report-exists",
+      verdict: passed ? "PASS" : "FAIL",
+      message: passed
+        ? `Test report exists at ${testReport.path}.`
+        : `Test report does not exist at ${testReport.path}.`,
     });
   }
 
-  const verdict = rules.every((r) => r.passed) ? "accepted" : "rejected";
+  const passedCount = rules.filter((r) => r.verdict === "PASS").length;
+  const verdict = passedCount === 4 ? "PASS" : "FAIL";
 
-  return { verdict, rules };
+  return {
+    schemaVersion: 1,
+    verdict,
+    taskId,
+    commitSha,
+    summary: {
+      passed: passedCount,
+      failed: 4 - passedCount,
+      total: 4,
+    },
+    rules,
+  };
 }
 
-export const RULE_IDS = [
-  "task_associated",
-  "commit_exists",
-  "ci_passed",
-  "test_report_present",
-];
+export { InputError };

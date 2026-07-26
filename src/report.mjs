@@ -1,30 +1,40 @@
 // src/report.mjs
-import { evaluateEvaluation } from "./evaluator.mjs";
+// Terminal + JSON presentation for the GitHub Actions Gate (SPEC §9/§10).
+// The machine-readable JSON report lives here so output is deterministic and
+// byte-equivalent for the same normalized input when the same indent is used.
 
-export function formatJson(result) {
-  return JSON.stringify(
-    {
-      verdict: result.verdict,
-      timestamp: new Date().toISOString(),
-      rules: result.rules,
+// Build the JSON report object per SPEC §9.
+export function buildReport(result) {
+  return {
+    schemaVersion: result.schemaVersion,
+    verdict: result.verdict,
+    taskId: result.taskId,
+    commitSha: result.commitSha,
+    summary: {
+      passed: result.summary.passed,
+      failed: result.summary.failed,
+      total: result.summary.total,
     },
-    null,
-    2
-  );
+    rules: result.rules.map((r) => ({
+      id: r.id,
+      verdict: r.verdict,
+      message: r.message,
+    })),
+  };
 }
 
-export function formatReport(result) {
+// Deterministic JSON string (no timestamps, no random ids, stable key order).
+export function formatJson(result, indent = 2) {
+  return JSON.stringify(buildReport(result), null, indent);
+}
+
+// Human-readable terminal summary (SPEC §10).
+export function formatSummary(result) {
   const lines = [];
-  lines.push("GitHub Actions Gate — 验收结果");
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  const head = result.verdict === "PASS" ? "PASS" : "FAIL";
+  lines.push(`${head} github-actions-gate: ${result.summary.passed}/${result.summary.total} rules passed`);
   for (const r of result.rules) {
-    lines.push(
-      `  ${r.passed ? "✓" : "✗"} ${r.name} (${r.id}): ${r.reason}`
-    );
+    lines.push(`${r.verdict} ${r.id}: ${r.message}`);
   }
-  lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  lines.push(
-    `结论: ${result.verdict === "accepted" ? "✓ 通过" : "✗ 拒绝"}`
-  );
   return lines.join("\n");
 }

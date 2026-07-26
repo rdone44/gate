@@ -1,20 +1,31 @@
 {
-  "commit": {
-    "sha": "a1b2c3d"
-  },
-  "run": {
-    "id": 123456,
-    "status": "success"
-  },
+  "schemaVersion": 1,
   "task": {
-    "id": "TASK-42",
-    "title": "\u5b9e\u73b0\u767b\u5f55\u9875"
+    "id": "TASK-123",
+    "title": "Add deterministic release gate"
+  },
+  "change": {
+    "commitSha": "0123456789abcdef0123456789abcdef01234567",
+    "associatedTaskIds": [
+      "TASK-123"
+    ]
+  },
+  "ci": {
+    "checks": [
+      {
+        "name": "test",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
   },
   "testReport": {
-    "summary": {
-      "failed": 0,
-      "passed": 10,
-      "total": 10
-    }
+    "format": "json",
+    "path": "artifacts/test-report.json",
+    "exists": true
+  },
+  "metadata": {
+    "repository": "owner/repository",
+    "pullRequest": 42
   }
 }
