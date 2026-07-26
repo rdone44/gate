@@ -5,6 +5,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { evaluate, validateInput, InputError } from "../src/evaluator.mjs";
 import { formatJson, formatSummary } from "../src/report.mjs";
+import { buildEvaluationDocument, CollectorError } from "../src/collector.mjs";
 import { readFileSync as _r } from "node:fs";
 
 const PROG = "github-actions-gate";
@@ -22,6 +23,7 @@ function version() {
 function printHelp() {
   const out = [
     `Usage: ${PROG} evaluate --input <path|-> [--output <path>] [--json] [--quiet]`,
+    `       ${PROG} collect --owner <o> --repo <r> --sha <40-hex> [--task <id>] [--report <name>] [--branch <name>] [--output <path>] [--json] [--quiet]`,
     `       ${PROG} --help`,
     `       ${PROG} --version`,
     "",
@@ -29,8 +31,9 @@ function printHelp() {
     "",
     "Commands:",
     "  evaluate                  Read one JSON evaluation document and emit a verdict.",
+    "  collect                   Fetch evidence from GitHub REST API, then evaluate.",
     "",
-    "Options:",
+    "Options (evaluate):",
     "  --input <path>            Read UTF-8 JSON from a file.",
     "  --input -                 Read UTF-8 JSON from standard input.",
     "  --output <path>           Write the machine-readable JSON report to a file.",
@@ -39,8 +42,22 @@ function printHelp() {
     "  --help                    Print this help and exit 0.",
     "  --version                 Print the package version and exit 0.",
     "",
-    "--json and --quiet are mutually exclusive. Exit codes: 0 PASS, 1 rule failure, 2 usage/input error.",
-  ];
+    "Options (collect):",
+    "  --owner <o>               GitHub org/user slug (required).",
+    "  --repo <r>                GitHub repo slug (required).",
+    "  --sha <40-hex>            Commit SHA, exactly 40 hex, not all-zero (required).",
+    "  --task <id>               Task ID for rule 1 association (optional).",
+    "  --report <name>           Artifact name or glob for test-report-exists (optional).",
+    "  --branch <name>           Branch name, informational (optional).",
+    "  --output <path>           Same as evaluate --output.",
+    "  --json                    Same as evaluate --json.",
+    "  --quiet                   Same as evaluate --quiet.",
+    "",
+    "Environment:",
+    "  GITHUB_TOKEN               Required for collect; sent only to api.github.com.",
+    "",
+    "--json and --quiet are mutually exclusive. Exit codes: 0 PASS, 1 rule failure, 2 usage/input/collector error.",
+  ]
   process.stdout.write(out.join("\n") + "\n");
 }
 
@@ -73,15 +90,30 @@ function parseArgs(argv) {
   if (argv.length >= 1 && argv[0] === "--version") return { version: true };
 
   let command = null;
-  const opts = { input: undefined, output: undefined, json: false, quiet: false };
+  const opts = {
+    input: undefined,
+    output: undefined,
+    json: false,
+    quiet: false,
+    owner: undefined,
+    repo: undefined,
+    sha: undefined,
+    task: undefined,
+    report: undefined,
+    branch: undefined,
+  };
   let i = 0;
 
   while (i < argv.length) {
     const a = argv[i];
     switch (a) {
       case "evaluate":
-        if (command !== null) dieUsage("unexpected second command 'evaluate'");
+        if (command !== null) dieUsage(`unexpected second command '${a}'`);
         command = "evaluate";
+        break;
+      case "collect":
+        if (command !== null) dieUsage(`unexpected second command '${a}'`);
+        command = "collect";
         break;
       case "--input": {
         if (opts.input !== undefined) dieUsage("--input given more than once");
@@ -99,6 +131,54 @@ function parseArgs(argv) {
         i += 1;
         break;
       }
+      case "--owner": {
+        if (opts.owner !== undefined) dieUsage("--owner given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--owner requires a value");
+        opts.owner = v;
+        i += 1;
+        break;
+      }
+      case "--repo": {
+        if (opts.repo !== undefined) dieUsage("--repo given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--repo requires a value");
+        opts.repo = v;
+        i += 1;
+        break;
+      }
+      case "--sha": {
+        if (opts.sha !== undefined) dieUsage("--sha given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--sha requires a value");
+        opts.sha = v;
+        i += 1;
+        break;
+      }
+      case "--task": {
+        if (opts.task !== undefined) dieUsage("--task given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--task requires a value");
+        opts.task = v;
+        i += 1;
+        break;
+      }
+      case "--report": {
+        if (opts.report !== undefined) dieUsage("--report given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--report requires a value");
+        opts.report = v;
+        i += 1;
+        break;
+      }
+      case "--branch": {
+        if (opts.branch !== undefined) dieUsage("--branch given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--branch requires a value");
+        opts.branch = v;
+        i += 1;
+        break;
+      }
       case "--json":
         if (opts.json) dieUsage("--json given more than once");
         opts.json = true;
@@ -113,13 +193,25 @@ function parseArgs(argv) {
     i += 1;
   }
 
-  if (command !== "evaluate") dieUsage("missing 'evaluate' command");
-  if (opts.input === undefined) dieUsage("missing required --input");
-  if (opts.json && opts.quiet) dieUsage("--json and --quiet are mutually exclusive");
-  return { command: "evaluate", ...opts };
+  // Validate per-command required flags.
+  if (command === "evaluate") {
+    if (opts.input === undefined) dieUsage("missing required --input");
+    if (opts.json && opts.quiet) dieUsage("--json and --quiet are mutually exclusive");
+    return { command, ...opts };
+  }
+
+  if (command === "collect") {
+    if (opts.owner === undefined) dieUsage("missing required --owner");
+    if (opts.repo === undefined) dieUsage("missing required --repo");
+    if (opts.sha === undefined) dieUsage("missing required --sha");
+    if (opts.json && opts.quiet) dieUsage("--json and --quiet are mutually exclusive");
+    return { command, ...opts };
+  }
+
+  dieUsage("missing 'evaluate' or 'collect' command");
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
@@ -131,13 +223,32 @@ function main() {
     process.exit(0);
   }
 
-  const raw = readInput(args.input);
+  // Dispatch by command.
   let input;
-  try {
-    input = JSON.parse(raw);
-  } catch (e) {
-    process.stderr.write(`${PROG}: invalid JSON: ${e.message}\n`);
-    process.exit(2);
+  if (args.command === "evaluate") {
+    const raw = readInput(args.input);
+    try {
+      input = JSON.parse(raw);
+    } catch (e) {
+      process.stderr.write(`${PROG}: invalid JSON: ${e.message}\n`);
+      process.exit(2);
+    }
+  } else {
+    // collect — fetch from GitHub API.
+    try {
+      input = await buildEvaluationDocument(args.owner, args.repo, args.sha, {
+        taskId: args.task,
+        report: args.report,
+        branch: args.branch,
+      });
+    } catch (e) {
+      if (e instanceof CollectorError) {
+        process.stderr.write(`${PROG}: ${collectorMessage(e)}\n`);
+        process.exit(2);
+      }
+      process.stderr.write(`${PROG}: ${e.message}\n`);
+      process.exit(2);
+    }
   }
 
   let result;
@@ -175,4 +286,26 @@ function main() {
   process.exit(result.verdict === "PASS" ? 0 : 1);
 }
 
-main();
+// SPEC §16.6 — map CollectorError kind to human message (no token leakage).
+function collectorMessage(e) {
+  switch (e.kind) {
+    case "AUTH_MISSING":
+      return "GITHUB_TOKEN is not set";
+    case "AUTH_FAILED":
+      return "authentication failed";
+    case "RATE_LIMITED":
+      return `rate limited; retry at ${e.retryAt || "unknown"}`;
+    case "COMMIT_NOT_FOUND":
+      return e.message; // already templated in collector
+    case "SERVER_ERROR":
+      return `GitHub API server error: ${e.status}`;
+    case "PAGINATION_INCOMPLETE":
+      return `pagination incomplete`;
+    case "AMBIGUOUS_EVIDENCE":
+      return e.message;
+    default:
+      return e.message;
+  }
+}
+
+await main();

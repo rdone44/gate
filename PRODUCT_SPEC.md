@@ -253,13 +253,13 @@ FAIL test-report-exists: Test report does not exist at artifacts/test-report.jso
 
 ```text
 github-actions-gate evaluate --input <path|-> [--output <path>] [--json] [--quiet]
+github-actions-gate collect  --owner <o> --repo <r> --sha <40-hex> [--task <id>] [--report <name>] [--branch <name>] [--output <path>] [--json] [--quiet]
 github-actions-gate --help
 github-actions-gate --version
 ```
 
-`evaluate` is the offline command and the only command in v0.1.x.
-
-A `github` network collector is planned for v0.2.0 (see §16).
+`evaluate` is the offline command (v0.1.x).
+`collect` is the GitHub API collector (v0.2.0); see §16.
 
 ### 11.2 Options
 
@@ -291,30 +291,160 @@ A `github` network collector is planned for v0.2.0 (see §16).
 
 ## 12. v0.1.x scope boundary
 
-v0.1.x implements offline `evaluate` only. The following are explicitly out of scope for v0.1.x and deferred to v0.2.0:
+v0.1.x implements offline `evaluate` only. The following are explicitly out of scope for v0.1.x and deferred to v0.2.0 (now fully specified in §16):
 
-- the `github` command and `--repo/--task/--sha/--report` flags;
+- the `collect` command and `--owner/--repo/--sha/--task/--report/--branch` flags;
 - network access of any kind;
 - `GITHUB_TOKEN` handling;
 - GitHub API collection, pagination, or rate-limit handling;
-- the GitHub mode contract previously documented in this section (moved to §16).
+- the `src/collector.mjs` module and `CollectorError` type.
 
-## 16. v0.2.0 — GitHub collector mode (planned)
+## 16. v0.2.0 — GitHub collector mode
 
-The following GitHub mode contract is deferred to v0.2.0 and documented here for forward reference only. It must not be implemented or advertised as part of v0.1.x.
+v0.2.0 adds a `collect` subcommand that fetches live evidence from the GitHub
+REST API and feeds it — without reimplementation — into the same v0.1.x
+evaluator used by `evaluate`. The offline contract in §6–§11 is unchanged.
 
-GitHub mode must:
+### 16.1 CLI signature
 
-1. read the token only from `GITHUB_TOKEN`;
-2. send the token only to `https://api.github.com`;
-3. confirm the commit exists in the named repository;
-4. collect check runs for the exact commit SHA;
-5. derive task association only from explicit structured linkage supported by the implementation and documented in its README;
-6. look for the exact named test-report artifact when `--report` is supplied;
-7. convert API data into the canonical input contract;
-8. call the same evaluator used by offline mode;
-9. never print or persist the token;
-10. exit `2` on incomplete pagination, rate limiting, authentication failure, or ambiguous evidence rather than returning a false PASS.
+```text
+github-actions-gate collect --owner <o> --repo <r> --sha <40-hex>
+                             [--task <id>] [--report <artifact-name>]
+                             [--branch <name>] [--output <path>] [--json] [--quiet]
+```
+
+| Flag | Required | Type | Constraint |
+| --- | --- | --- | --- |
+| `--owner` | yes | string | Non-empty; GitHub org/user slug (URL-safe). |
+| `--repo` | yes | string | Non-empty; GitHub repo slug. |
+| `--sha` | yes | string | Exactly 40 hex chars, not all-zero. |
+| `--task` | no | string | Task ID for `task-associated`. Omitted ⇒ no rule-1 PASS possible (array empty). |
+| `--report` | no | string | Artifact name pattern (exact or glob). Omitted ⇒ `testReport.exists = false`. |
+| `--branch` | no | string | Branch name, purely informational; written to `metadata.branch` if present. |
+| `--output` | no | path | Same semantics as `evaluate --output`. |
+| `--json` | no | flag | Same semantics as `evaluate --json`. |
+| `--quiet` | no | flag | Same semantics as `evaluate --quiet`. |
+
+`--json` and `--quiet` remain mutually exclusive. Unknown flags, missing
+required flags, duplicate singletons, and extra positionals exit `2` —
+identical to `evaluate`'s usage contract.
+
+### 16.2 Authentication
+
+1. The token is read **only** from the `GITHUB_TOKEN` environment variable.
+2. The token is sent **only** to `https://api.github.com` via the
+   `Authorization: Bearer <token>` header.
+3. A missing or empty `GITHUB_TOKEN` is a usage error (exit `2`), not a gate
+   failure. No prompt, no interactive entry.
+4. The token is never echoed, logged, written to `--output`, printed in error
+   messages, or persisted to disk. `CollectorError` messages must redact the
+   token even in debug output.
+
+### 16.3 Collector module contract
+
+`src/collector.mjs` exports exactly three functions. No other module in the
+project may import Node's `https`/`fetch` except `collector.mjs`.
+
+```js
+// Fetch a single REST page. Throws CollectorError on non-2xx.
+// Never returns partial data — a page is either complete or throws.
+export async function fetchPage(path, token, { page = 1, perPage = 100 } = {})
+  // → { status: 200, headers: Headers, body: any }
+
+// Drive full pagination to completion across the named endpoint.
+// Throws CollectorError if any page fetch fails or if the server signals
+// an incomplete traverse (e.g. a page returns fewer than perPage items
+// but also includes a `next` Link that is unreachable).
+export async function collectAll(path, token, { perPage = 100 } = {})
+  // → any[]   // concatenated items, stable order
+
+// Build a canonical §6 evaluation document from GitHub API data.
+// Does NOT evaluate — returns the raw object shaped per §6.1.
+// Throws CollectorError on any ambiguous/missing evidence.
+export function buildEvaluationDocument(owner, repo, sha, {
+  taskId   = null,
+  report   = null,
+  branch   = null,
+} = {}, api = { fetchPage, collectAll, token })
+  // → { schemaVersion:1, task, change, ci, testReport, metadata }
+```
+
+`buildEvaluationDocument` must call `validateInput` (from `evaluator.mjs`)
+on its own output before returning. A validation failure there is a
+`CollectorError` (ambiguous evidence), not an `InputError`.
+
+### 16.4 API endpoints and mapping
+
+| Canonical field (§6.1) | GitHub API call | Mapping rule |
+| --- | --- | --- |
+| `change.commitSha` | `GET /repos/{owner}/{repo}/commits/{sha}` | Echo the SHA; a 404 here throws `CollectorError("commit not found")`. The commit existing is the sole source of truth — no heuristics from branch or PR. |
+| `ci.checks[].name` | `GET /repos/{owner}/{repo}/commits/{sha}/check-runs` (paginated via `collectAll`) | `check_runs[].name`. |
+| `ci.checks[].status` | same | `check_runs[].status` verbatim (`queued`, `in_progress`, `completed`, …). |
+| `ci.checks[].conclusion` | same | `check_runs[].conclusion` verbatim (`success`, `failure`, `neutral`, `cancelled`, `skipped`, `timed_out`, `action_required`, `stale`, `null`). A literal JSON `null` becomes string `"null"` to satisfy §6.2's non-empty-string constraint; the evaluator's rule 3 then FAILs on it (not an input error). |
+| `change.associatedTaskIds` | derived | If `--task` is provided: `[taskId]`. If omitted: `[]`. **No** inference from commit messages, branch names, PR titles, or partial matches. This is the only supported linkage mechanism in v0.2.0. |
+| `task.id` | from `--task` | Echo verbatim. If `--task` omitted, `task.id` is `""` — which `validateInput` rejects as non-empty, so the collector must set `task.id` to the literal `"<none>"` and `associatedTaskIds` to `[]`, letting the evaluator FAIL rule 1 deterministically rather than short-circuiting. |
+| `testReport.exists` | `GET /repos/{owner}/{repo}/actions/artifacts?name={report}` (paginated) | `true` only if ≥1 artifact whose `name` matches `--report` (exact or glob via minimatch-style) has `expired === false`. Otherwise `false`. If `--report` omitted → `false`. The actual artifact **content** is never downloaded — §6 treats `exists` as authoritative boolean evidence, and v0.1.x/v0.2.0 do not parse report internals. |
+| `testReport.path` | from `--report` or fixed default | If `--report` provided: `"artifacts/" + matchedArtifact.archive_download_url` basename. If omitted: `"artifacts/"` (non-empty placeholder so §6.2 passes; `exists=false` still FAILs rule 4). |
+| `metadata.repository` | from `--owner`/`--repo` | `"{owner}/{repo}"`. |
+| `metadata.branch` | from `--branch` | Echoed if provided; omitted otherwise. `metadata.pullRequest` is **not** populated in v0.2.0 (no PR API call is made). |
+
+### 16.5 Pagination and rate limiting
+
+1. `collectAll` follows `Link: rel="next"` headers only. No out-of-band
+   cursor guessing.
+2. On HTTP 403 with `X-RateLimit-Remaining: 0`: throw
+   `CollectorError("rate limited; retry at {reset}", { retryAt })`. Exit 2.
+3. On HTTP 403/401 without rate-limit header: throw
+   `CollectorError("authentication failed")`. Exit 2.
+4. On any HTTP 5xx: throw `CollectorError("server error: {status}")`. Exit 2.
+5. On HTTP 404 for the commit SHA endpoint specifically: throw
+   `CollectorError("commit {sha} not found in {owner}/{repo}")`. Exit 2.
+6. On HTTP 404 for a non-commit endpoint (e.g. check-runs): return `[]`
+   (empty array) and let the evaluator FAIL the gate normally — a missing
+   CI check page is evidence of CI failure, not a collection error.
+7. `collectAll` must not retry silently. One request per page, throw on
+   failure. The caller (CLI layer) is responsible for any retry policy, and
+   v0.2.0 does NOT implement retry — it fails fast and exits 2.
+
+### 16.6 Error model and exit codes
+
+`CollectorError` extends `Error` with `{ kind, status, retryAt }`. The CLI
+catches `CollectorError` and exits `2` with a message on stderr that
+**never** includes the token. Specific kinds:
+
+| `kind` | HTTP status | Exit | stderr message template |
+| --- | --- | --- | --- |
+| `AUTH_MISSING` | — | 2 | `GITHUB_TOKEN is not set` |
+| `AUTH_FAILED` | 401/403 (non-rate-limit) | 2 | `authentication failed` |
+| `RATE_LIMITED` | 403 + `X-RateLimit-Remaining: 0` | 2 | `rate limited; retry at {retryAt}` |
+| `COMMIT_NOT_FOUND` | 404 on commit endpoint | 2 | `commit {sha} not found in {owner}/{repo}` |
+| `SERVER_ERROR` | 5xx | 2 | `GitHub API server error: {status}` |
+| `PAGINATION_INCOMPLETE` | any | 2 | `pagination incomplete at {endpoint}` |
+| `AMBIGUOUS_EVIDENCE` | — | 2 | `ambiguous evidence: {detail}` |
+
+Gate verdict exit codes are unchanged from §11.4:
+`collect` exits `0` on PASS, `1` on rule failure, `2` on any collector or
+usage error. A collector error **never** produces exit 0 or 1.
+
+### 16.7 Streaming and determinism
+
+1. `collect` calls `buildEvaluationDocument` (sync build + validate) then
+   `evaluate` — the same function `evaluate` uses. No separate evaluator.
+2. `--json` and `--output` output the exact §9 JSON schema. The source
+   (`collect` vs `evaluate`) is not recorded in the report; the report is
+   identical whether the input doc came from a file or from the API.
+3. Network fetches are the only non-deterministic part. The **evaluation**
+   is deterministic given the collected document. `collect` does not cache
+   or memoize across invocations.
+
+### 16.8 Offline-acceptance guarantee
+
+`npm test` must continue to pass with zero network access and no
+`GITHUB_TOKEN`. All collector logic is unit-testable via dependency injection:
+`buildEvaluationDocument` accepts an `api` object (§16.3) so tests inject
+stub `fetchPage`/`collectAll` without touching the real GitHub API. A smoke
+test with a live token is permitted as an opt-in `npm run test:collect`
+script but must be skipped automatically when `GITHUB_TOKEN` is absent.
 
 Offline acceptance must not require a GitHub token or network connection.
 
