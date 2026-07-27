@@ -87,7 +87,7 @@ Suite: `node --test test/*.test.mjs` — 87 tests, all passing.
 | `bin/gate.mjs`        | CLI entry point (arg parse + file read + evaluate)   |
 | `src/evaluator.mjs`   | Pure evaluator — four rules                          |
 | `src/report.mjs`      | `formatJson()` and `formatReport()` output formatters |
-| `test/*.test.mjs`     | `node --test` suite (10 tests)                        |
+| `test/*.test.mjs`     | `node --test` suite (87 tests: 31 evaluator + 56 collector) |
 | `fixtures/pass.json`  | Evaluation object that passes all four rules         |
 | `fixtures/fail.json`  | Evaluation object that fails CI + test rules         |
 | `action.yml`          | GitHub Action wrapper (Docker)                       |

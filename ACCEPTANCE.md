@@ -20,7 +20,8 @@ Present and inspected:
 - `Dockerfile` — `node:22-alpine`, copies `package.json` + `bin/` + `src/`, ENTRYPOINT `node bin/gate.mjs`
 - `fixtures/pass.json` — 4/4 rules pass
 - `fixtures/fail.json` — CI failure + test failures → rejected
-- `test/evaluator.test.mjs` — 10 tests (real `node --test` run: 10/10 pass, 206 ms)
+- `test/evaluator.test.mjs` — unit tests for evaluator/report/CLI (31 tests)
+- `test/collector.test.mjs` — unit + §16.10 integration tests for collector (56 tests)
 - `.github/workflows/gate.yml` — CI workflow (created during this audit cycle)
 - `README.md` — offline + GitHub API usage docs
 
@@ -37,13 +38,17 @@ Environment:
 Result: PASS (exit code 0)
 
 ```
-ℹ tests 10
-ℹ pass 10
+ℹ tests 87
+ℹ pass 87
 ℹ fail 0
-ℹ duration_ms 206.083688
+ℹ duration_ms 2176.519749
 ```
 
-Verified behavior: all four rules, pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON."
+Test files:
+- `test/evaluator.test.mjs` — 31 tests (evaluator rules, report formatters, CLI flags/exit codes)
+- `test/collector.test.mjs` — 56 tests (fetchPage, collectAll, buildEvaluationDocument, §16.10 stubbed-fetch integration)
+
+Verified behavior: all four rules, pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON, collector §16.10 end-to-end pipeline."
 
 ### CLI fixtures (local, real command runs)
 
@@ -163,10 +168,10 @@ No external GitHub API call is made by the workflow — it only exercises the of
 | ---                                                      | ---     | ---      |
 | Product specification exists                             | PASS    | `PRODUCT_SPEC.md` defines users, workflow, contracts, four rules, and checklist. |
 | Node.js ESM evaluator, CLI, and report formatter         | PASS    | `src/evaluator.mjs` (4 rules), `bin/gate.mjs`, `src/report.mjs`; `"type": "module"` in `package.json`. |
-| Four deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` — 10/10 pass. |
+| Four deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` + `test/collector.test.mjs` — 87/87 pass. |
 | Machine and terminal reports                             | PASS    | `formatJson()` returns valid JSON; `formatReport()` returns human-readable text containing `PASS`/`FAIL`. Both exercised by tests + real CLI runs. |
 | Offline fixtures and example                             | PASS    | `fixtures/pass.json` exits 0; `fixtures/fail.json` exits 1; both verified via `node bin/gate.mjs evaluate --input`. |
-| Automated tests                                          | PASS    | Real `npm test` run: 10/10 passed, 206 ms. |
+| Automated tests                                          | PASS    | Real `npm test` run: 87/87 passed (31 evaluator + 56 collector), 2177 ms. |
 | Docker packaging                                         | PASS    | Image built; PASS fixture exits 0 in container; FAIL fixture exits 1. |
 | GitHub Actions usage                                     | PASS    | `.github/workflows/gate.yml` is valid YAML; defines `gate` job exercising tests, fixtures, and Docker build. Run on hosted runners; applicable tag pushes fail without gate passing. |
 | GitHub Action wrapper                                    | PASS    | `action.yml` declares `using: docker`, `image: Dockerfile`. |
