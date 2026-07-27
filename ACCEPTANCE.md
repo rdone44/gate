@@ -170,11 +170,12 @@ No external GitHub API call is made by the workflow — it only exercises the of
 | Docker packaging                                         | PASS    | Image built; PASS fixture exits 0 in container; FAIL fixture exits 1. |
 | GitHub Actions usage                                     | PASS    | `.github/workflows/gate.yml` is valid YAML; defines `gate` job exercising tests, fixtures, and Docker build. Run on hosted runners; applicable tag pushes fail without gate passing. |
 | GitHub Action wrapper                                    | PASS    | `action.yml` declares `using: docker`, `image: Dockerfile`. |
+| GitHub collector mode (SPEC §16)                         | PASS    | `src/collector.mjs` exports `fetchPage`, `collectAll`, `buildEvaluationDocument`. `bin/gate.mjs collect` subcommand wired. `test/collector.test.mjs` §16.10 integration tests pass (stubbed fetch, full collect→evaluate pipeline). |
 
 ## Known gaps (honest disclosure)
 
 - **Hosted Actions run pending.** The remote `origin` is configured (github.com/rdone44/github-actions-gate.git) and tags `v0.1.0`–`v0.2.0` have been pushed. The `gate.yml` workflow is syntactically valid and will execute on hosted GitHub Actions runners once a tagged push triggers it.
-- **GitHub API `github` subcommand** described in `README.md` and `PRODUCT_SPEC.md` is not present in `bin/gate.mjs` at this revision — the CLI currently only performs offline evaluation of evaluation-JSON files. The README references a `github` subcommand and `lib/github.js` collector that do not exist as separate modules. This is logged as an implementation gap (acceptable for the offline MVP scope, but flagged for takt).
+- **GitHub collector mode shipped (v0.3.0–v0.3.2).** `src/collector.mjs` and `bin/gate.mjs collect` are now implemented and tested (87/87 pass including §16.10 stubbed-fetch integration tests). The previous gap — CLI only performing offline evaluation — is resolved.
 - Previous audit (2026-07-19) referenced file paths `bin/github-actions-gate.js`, `lib/evaluator.js`, `lib/github.js` that do not exist — that report was erroneous. Real paths are `bin/gate.mjs`, `src/evaluator.mjs`, `src/report.mjs` as documented here.
 
 ## Decision

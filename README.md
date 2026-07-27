@@ -61,13 +61,24 @@ To use this repository as a reusable Action from another repo, reference `action
 
 `action.yml` is Docker-based (`using: docker`, `image: Dockerfile`). Evaluation JSON is passed as the first argument to `bin/gate.mjs`.
 
+## Collect (GitHub collector mode)
+
+```sh
+node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate \
+  --sha <40-hex> --task TASK-1 --report "test-report" --branch main --json
+```
+
+`collect` fetches evidence from the GitHub REST API (commit, check-runs, artifacts) and builds a canonical evaluation document, then runs the same evaluator as `evaluate`. Requires `GITHUB_TOKEN` env var. Output is machine JSON (`--json`) or human report.
+
+Collector source: `src/collector.mjs` (SPEC §16). Integration tests in `test/collector.test.mjs` use stubbed fetch to exercise the full collect→evaluate pipeline end-to-end.
+
 ## Test
 
 ```sh
 npm test
 ```
 
-Suite: `node --test test/*.test.mjs` — 10 tests, all passing.
+Suite: `node --test test/*.test.mjs` — 87 tests, all passing.
 
 ## Project layout
 

@@ -2,6 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync, rmSync, rmdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pathJoin } from "node:path";
 
 import {
   buildEvaluationDocument,
@@ -257,4 +260,103 @@ test("CLI: missing both evaluate and collect command exits 2", () => {
   const file = new URL("../fixtures/pass.json", import.meta.url).pathname;
   const { exitCode } = runGate(["--input", file]);
   assert.equal(exitCode, 2);
+});
+
+// ---------- §16.10 — CLI collect end-to-end integration with stubbed fetch ----------
+//
+// These tests spawn the real `node bin/gate.mjs collect ...` subprocess and inject
+// a stubbed globalThis.fetch via Node's --import flag pointing at a temporary preload
+// script. The preload intercepts requests to api.github.com (the collector uses the
+// global fetch, see src/collector.mjs) and returns fabricated commit / check-runs /
+// artifacts JSON, so the full collect->evaluate pipeline runs end-to-end without
+// touching the network. GATE_STUB_VERDICT selects whether the stub returns all-pass or
+// a failing CI check, so the only variable between the two tests is CI evidence.
+
+const FETCH_STUB_PRELOAD = [
+  "globalThis.fetch = async (input, init) => {",
+  '  const u = typeof input === "string" ? new URL(input) : input;',
+  "  const path = u.pathname;",
+  "  const [owner, repo] = [process.env.GATE_OWNER, process.env.GATE_REPO];",
+  "  const sha = process.env.GATE_SHA;",
+  '  const verdict = process.env.GATE_STUB_VERDICT || "PASS";',
+  "  let body;",
+  "  // GET /repos/{owner}/{repo}/commits/{sha} - commit existence proof.",
+  '  if (path === `/repos/${owner}/${repo}/commits/${sha}`) {',
+  "    body = { sha };",
+  "  // GET /repos/{owner}/{repo}/commits/{sha}/check-runs - CI evidence.",
+  '  } else if (path === `/repos/${owner}/${repo}/commits/${sha}/check-runs`) {',
+  '    const checks = verdict === "PASS"',
+  '      ? [{ name: "ci/test", status: "completed", conclusion: "success" }]',
+  '      : [',
+  '          { name: "ci/test", status: "completed", conclusion: "success" },',
+  '          { name: "ci/build", status: "completed", conclusion: "failure" },',
+  "        ];",
+  "    body = { check_runs: checks, total: checks.length };",
+  "  // GET /repos/{owner}/{repo}/actions/artifacts - test report existence.",
+  '  } else if (path === `/repos/${owner}/${repo}/actions/artifacts`) {',
+  "    body = {",
+  '      artifacts: [{ name: process.env.GATE_REPORT, expired: false,',
+  '        archive_download_url: "https://x/y/" + process.env.GATE_REPORT + ".zip" }],',
+  "      total_count: 1,",
+  "    };",
+  "  } else {",
+  "    body = [];",
+  "  }",
+  "  return {",
+  "    status: 200,",
+  '    headers: { get: (k) => (k === "link" ? "" : null) },',
+  "    async json() { return body; },",
+  "  };",
+  "};",
+  "",
+].join("\n");
+
+function runCollectWithStubbedFetch({ verdict, sha }) {
+  // Write the preload shim to a temp dir and spawn the CLI with --import.
+  const tmpDir = mkdtempSync(pathJoin(tmpdir(), "gate-stub-"));
+  const preloadPath = pathJoin(tmpDir, "fetch-stub.mjs");
+  writeFileSync(preloadPath, FETCH_STUB_PRELOAD, "utf8");
+  try {
+    const env = {
+      ...process.env,
+      GITHUB_TOKEN: "ghp_test_stub_xxx",
+      GATE_SHA: sha,
+      GATE_OWNER: "o",
+      GATE_REPO: "r",
+      GATE_REPORT: "test-report",
+      GATE_STUB_VERDICT: verdict,
+    };
+    try {
+      const stdout = execFileSync(
+        process.execPath,
+        ["--import", preloadPath, BIN_PATH, "collect",
+         "--owner", "o", "--repo", "r", "--sha", sha,
+         "--task", "TASK-1", "--report", "test-report", "--branch", "main",
+         "--json"],
+        { encoding: "utf8", maxBuffer: 1 << 20, env }
+      );
+      return { stdout, stderr: "", exitCode: 0 };
+    } catch (e) {
+      return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", exitCode: e.status ?? -1 };
+    }
+  } finally {
+    try { rmSync(preloadPath, { force: true }); } catch {}
+    try { rmdirSync(tmpDir); } catch {}
+  }
+}
+
+test("CLI integration: collect \u2192 verdict PASS (exit 0)", () => {
+  const { stdout, exitCode } = runCollectWithStubbedFetch({ verdict: "PASS", sha: VALID_SHA });
+  assert.equal(exitCode, 0, `expected exit 0, got ${exitCode}; stdout: ${stdout}`);
+  let result;
+  assert.doesNotThrow(() => { result = JSON.parse(stdout); }, "stdout must be valid JSON");
+  assert.equal(result.verdict, "PASS", `expected PASS verdict, got ${result.verdict}`);
+});
+
+test("CLI integration: collect \u2192 verdict FAIL (exit 1)", () => {
+  const { stdout, exitCode } = runCollectWithStubbedFetch({ verdict: "FAIL", sha: VALID_SHA });
+  assert.equal(exitCode, 1, `expected exit 1, got ${exitCode}; stdout: ${stdout}`);
+  let result;
+  assert.doesNotThrow(() => { result = JSON.parse(stdout); }, "stdout must be valid JSON");
+  assert.equal(result.verdict, "FAIL", `expected FAIL verdict, got ${result.verdict}`);
 });
