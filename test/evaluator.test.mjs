@@ -254,21 +254,22 @@ test("Rule 5 FAIL: pr.state = open", () => {
   assert.equal(r.verdict, "FAIL");
 });
 
-test("Rule 5 PASS: pr field absent (IP empty)", () => {
+test("Rule 5 FAIL: pr field absent (no evidence)", () => {
   const doc = basePass();
   delete doc.pr;
   const r = evaluate(doc);
   const rule = r.rules.find((x) => x.id === "pr-merged");
-  assert.equal(rule.verdict, "PASS");
-  assert.equal(r.verdict, "PASS");
+  assert.equal(rule.verdict, "FAIL");
+  assert.equal(r.verdict, "FAIL");
 });
 
-test("Rule 5 PASS: pr field is null", () => {
+test("Rule 5 FAIL: pr field is null (no evidence)", () => {
   const doc = basePass();
   doc.pr = null;
   const r = evaluate(doc);
   const rule = r.rules.find((x) => x.id === "pr-merged");
-  assert.equal(rule.verdict, "PASS");
+  assert.equal(rule.verdict, "FAIL");
+  assert.equal(r.verdict, "FAIL");
 });
 
 test("Rule 5 FAIL: pr.state = closed (not merged)", () => {
@@ -294,7 +295,7 @@ test("all five rules present in order even on failure", () => {
   assert.equal(r.rules.map((x) => x.id).join(","), "task-associated,commit-exists,ci-passes,test-report-exists,pr-merged");
   assert.equal(r.verdict, "FAIL");
   const passCount = r.rules.filter((x) => x.verdict === "PASS").length;
-  assert.equal(passCount, 2); // commit-exists + pr-merged (no pr field → PASS)
+  assert.equal(passCount, 2); // commit-exists + pr-merged (pr.state=merged)
 });
 
 test("summary counts correct on FAIL (2 pass / 3 fail)", () => {
@@ -568,13 +569,13 @@ test("CLI: pr-merged-fail fixture exits 1 and --json shows pr-merged FAIL", () =
   assert.match(rule.message, /open/);
 });
 
-test("CLI: pr-merged-empty fixture exits 0 (no pr field → PASS)", () => {
+test("CLI: pr-merged-empty fixture exits 1 (no pr field → FAIL)", () => {
   const file = new URL("../fixtures/pr-merged-empty.json", import.meta.url).pathname;
   const { stdout, exitCode } = runGate(["evaluate", "--input", file, "--json"]);
-  assert.equal(exitCode, 0);
+  assert.equal(exitCode, 1);
   const parsed = JSON.parse(stdout);
-  assert.equal(parsed.verdict, "PASS");
+  assert.equal(parsed.verdict, "FAIL");
   const rule = parsed.rules.find((x) => x.id === "pr-merged");
-  assert.equal(rule.verdict, "PASS");
+  assert.equal(rule.verdict, "FAIL");
   assert.match(rule.message, /empty/);
 });
