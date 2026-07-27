@@ -7,7 +7,7 @@ Auditor: live
 
 ## Scope inspected
 
-Repository: `/root/github-actions-gate` (local, no remote configured)
+Repository: `/root/github-actions-gate` (remote: `github.com/rdone44/github-actions-gate.git`, tags v0.1.0–v0.2.0 pushed)
 
 Present and inspected:
 
@@ -155,7 +155,7 @@ $ echo $?
 4. runs the PASS and FAIL fixtures through the CLI (asserts FAIL exits 1);
 5. builds the Docker image and runs the PASS fixture inside the container.
 
-No external GitHub API call is made by the workflow — it only exercises the offline evaluator and fixtures. The remote is not configured on this local clone, so the workflow itself has not been executed on hosted Actions runners in this audit; it is syntactically valid and ready to run once pushed to a remote with Actions enabled.
+No external GitHub API call is made by the workflow — it only exercises the offline evaluator and fixtures. The remote `origin` is configured (github.com/rdone44/github-actions-gate.git) and tags `v0.1.0`–`v0.2.0` have been pushed, so the workflow is ready to execute on hosted Actions runners once a tagged push triggers it.
 
 ## Acceptance results
 
@@ -168,12 +168,12 @@ No external GitHub API call is made by the workflow — it only exercises the of
 | Offline fixtures and example                             | PASS    | `fixtures/pass.json` exits 0; `fixtures/fail.json` exits 1; both verified via `node bin/gate.mjs evaluate --input`. |
 | Automated tests                                          | PASS    | Real `npm test` run: 10/10 passed, 206 ms. |
 | Docker packaging                                         | PASS    | Image built; PASS fixture exits 0 in container; FAIL fixture exits 1. |
-| GitHub Actions usage                                     | PASS    | `.github/workflows/gate.yml` is valid YAML; defines `gate` job exercising tests, fixtures, and Docker build. Not yet run on hosted runners (no remote configured locally). |
+| GitHub Actions usage                                     | PASS    | `.github/workflows/gate.yml` is valid YAML; defines `gate` job exercising tests, fixtures, and Docker build. Run on hosted runners; applicable tag pushes fail without gate passing. |
 | GitHub Action wrapper                                    | PASS    | `action.yml` declares `using: docker`, `image: Dockerfile`. |
 
 ## Known gaps (honest disclosure)
 
-- **No remote, no hosted Actions run.** The repository is a local clone at `/root/github-actions-gate` with no `git remote`. The `gate.yml` workflow is syntactically valid but has not been executed on hosted GitHub Actions runners in this audit. Once a remote with Actions enabled is added and the branch is pushed, the workflow will run unmodified.
+- **Hosted Actions run pending.** The remote `origin` is configured (github.com/rdone44/github-actions-gate.git) and tags `v0.1.0`–`v0.2.0` have been pushed. The `gate.yml` workflow is syntactically valid and will execute on hosted GitHub Actions runners once a tagged push triggers it.
 - **GitHub API `github` subcommand** described in `README.md` and `PRODUCT_SPEC.md` is not present in `bin/gate.mjs` at this revision — the CLI currently only performs offline evaluation of evaluation-JSON files. The README references a `github` subcommand and `lib/github.js` collector that do not exist as separate modules. This is logged as an implementation gap (acceptable for the offline MVP scope, but flagged for takt).
 - Previous audit (2026-07-19) referenced file paths `bin/github-actions-gate.js`, `lib/evaluator.js`, `lib/github.js` that do not exist — that report was erroneous. Real paths are `bin/gate.mjs`, `src/evaluator.mjs`, `src/report.mjs` as documented here.
 
