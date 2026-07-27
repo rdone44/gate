@@ -197,7 +197,7 @@ export async function buildEvaluationDocument(
   owner,
   repo,
   sha,
-  { taskId = null, report = null, branch = null } = {},
+  { taskId = null, report = null, branch = null, prNumber = null } = {},
   api = { fetchPage, collectAll, token: process.env.GITHUB_TOKEN || "" }
 ) {
   // Validate SHA format early (mirrors evaluator's HEX40).
@@ -258,7 +258,28 @@ export async function buildEvaluationDocument(
     }
   }
 
-  // 4. Build task.id and associatedTaskIds.
+  // 4. Fetch PR state if --pr is provided: GET /repos/{owner}/{repo}/pulls/{pr_number}
+  let prState = null;
+  if (prNumber) {
+    const prPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${prNumber}`;
+    const prRes = await fp(prPath, token);
+    if (prRes.status === 404) {
+      throw new CollectorError(`PR #${prNumber} not found in ${owner}/${repo}`, {
+        kind: "AMBIGUOUS_EVIDENCE",
+        status: 404,
+      });
+    }
+    if (prRes.status >= 400) {
+      throw classifyHttpError(prRes.status, prRes.headers, `PR #${prNumber}`);
+    }
+    if (prRes.body && typeof prRes.body === "object") {
+      // GitHub "pulls" API uses "state" = open|closed; "merged" is a boolean.
+      // Map: merged=true → "merged"; else state (open|closed).
+      prState = prRes.body.merged_at ? "merged" : prRes.body.state;
+    }
+  }
+
+  // 5. Build task.id and associatedTaskIds.
   // SPEC §16.4: if --task omitted, task.id = "<none>" (non-empty so validateInput
   // passes), associatedTaskIds = [] → evaluator FAILs rule 1 deterministically.
   const taskIdValue = taskId || "<none>";
@@ -281,6 +302,7 @@ export async function buildEvaluationDocument(
       path: testReportPath,
       exists: testReportExists,
     },
+    ...(prState !== null ? { pr: { state: prState } } : {}),
     metadata: {
       repository: `${owner}/${repo}`,
     },

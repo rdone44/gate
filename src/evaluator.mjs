@@ -133,15 +133,15 @@ export function evaluate(input) {
     });
   }
 
-  // Rule 5: pr_merged (SPEC v0.3.1) — PASS if pr is absent/null (IP empty)
-  // or pr.state === "merged". Any other state FAILs.
+  // Rule 5: pr_merged (SPEC v0.4.0) — FAIL if pr is absent/null (no evidence).
+  // PASS only if pr.state === "merged". Any other state also FAILs.
   {
     const pr = input.pr;
     let passed;
     let message;
     if (pr === undefined || pr === null) {
-      passed = true;
-      message = "No PR evidence; pr field is empty — PASS by default.";
+      passed = false;
+      message = "No PR evidence; pr field is empty — FAIL (PR required).";
     } else {
       passed = pr.state === "merged";
       message = passed

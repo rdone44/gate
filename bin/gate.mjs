@@ -23,7 +23,7 @@ function version() {
 function printHelp() {
   const out = [
     `Usage: ${PROG} evaluate --input <path|-> [--output <path>] [--json] [--quiet]`,
-    `       ${PROG} collect --owner <o> --repo <r> --sha <40-hex> [--task <id>] [--report <name>] [--branch <name>] [--output <path>] [--json] [--quiet]`,
+    `       ${PROG} collect --owner <o> --repo <r> --sha <40-hex> [--task <id>] [--report <name>] [--branch <name>] [--pr <number>] [--output <path>] [--json] [--quiet]`,
     `       ${PROG} --help`,
     `       ${PROG} --version`,
     "",
@@ -49,6 +49,7 @@ function printHelp() {
     "  --task <id>               Task ID for rule 1 association (optional).",
     "  --report <name>           Artifact name or glob for test-report-exists (optional).",
     "  --branch <name>           Branch name, informational (optional).",
+    "  --pr <number>             PR number to fetch merged state from pulls API (optional).",
     "  --output <path>           Same as evaluate --output.",
     "  --json                    Same as evaluate --json.",
     "  --quiet                   Same as evaluate --quiet.",
@@ -101,6 +102,7 @@ function parseArgs(argv) {
     task: undefined,
     report: undefined,
     branch: undefined,
+    pr: undefined,
   };
   let i = 0;
 
@@ -179,6 +181,14 @@ function parseArgs(argv) {
         i += 1;
         break;
       }
+      case "--pr": {
+        if (opts.pr !== undefined) dieUsage("--pr given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--pr requires a value");
+        opts.pr = v;
+        i += 1;
+        break;
+      }
       case "--json":
         if (opts.json) dieUsage("--json given more than once");
         opts.json = true;
@@ -240,6 +250,7 @@ async function main() {
         taskId: args.task,
         report: args.report,
         branch: args.branch,
+        prNumber: args.pr ? parseInt(args.pr, 10) : null,
       });
     } catch (e) {
       if (e instanceof CollectorError) {

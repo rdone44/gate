@@ -24,6 +24,9 @@
     "path": "artifacts/test-report.json",
     "exists": true
   },
+  "pr": {
+    "state": "merged"
+  },
   "metadata": {
     "repository": "owner/repository",
     "pullRequest": 42

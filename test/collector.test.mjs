@@ -32,7 +32,7 @@ const VALID_SHA = "0123456789abcdef0123456789abcdef01234567";
 
 // ---------- §16.3 — buildEvaluationDocument with injected stubs ----------
 
-function makeApi({ commitBody = {}, checkRuns = [], artifacts = [], token = "tok" } = {}) {
+function makeApi({ commitBody = {}, checkRuns = [], artifacts = [], prBody = null, prStatus = 200, token = "tok" } = {}) {
   const calls = [];
   const fetchPage = async (path) => {
     calls.push({ fetchPage: path });
@@ -56,6 +56,11 @@ function makeApi({ commitBody = {}, checkRuns = [], artifacts = [], token = "tok
         body: { artifacts, total_count: artifacts.length },
       };
     }
+    // PR fetch: GET /repos/{owner}/{repo}/pulls/{pr_number}
+    if (path.startsWith("/repos/owner/repo/pulls/")) {
+      if (prBody === null) return { status: 404, headers: new Map(), body: null };
+      return { status: prStatus, headers: new Map(), body: prBody };
+    }
     return { status: 404, headers: new Map(), body: null };
   };
   const collectAll = async (path) => {
@@ -74,11 +79,13 @@ test("§16 collect: full PASS pipeline via stubs", async () => {
     commitBody: { sha: VALID_SHA },
     checkRuns: [{ name: "test", status: "completed", conclusion: "success" }],
     artifacts: [{ name: "test-report", expired: false, archive_download_url: "https://x/y/test-report.zip" }],
+    prBody: { state: "closed", merged_at: "2026-01-01T00:00:00Z" },
   });
   const doc = await buildEvaluationDocument("owner", "repo", VALID_SHA, {
     taskId: "TASK-1",
     report: "test-report",
     branch: "main",
+    prNumber: 42,
   }, api);
 
   assert.equal(doc.schemaVersion, 1);
@@ -88,6 +95,7 @@ test("§16 collect: full PASS pipeline via stubs", async () => {
   assert.equal(doc.ci.checks.length, 1);
   assert.equal(doc.ci.checks[0].name, "test");
   assert.equal(doc.testReport.exists, true);
+  assert.equal(doc.pr.state, "merged");
   assert.equal(doc.metadata.repository, "owner/repo");
   assert.equal(doc.metadata.branch, "main");
 
@@ -299,6 +307,9 @@ const FETCH_STUB_PRELOAD = [
   '        archive_download_url: "https://x/y/" + process.env.GATE_REPORT + ".zip" }],',
   "      total_count: 1,",
   "    };",
+  "  // GET /repos/{owner}/{repo}/pulls/{n} - PR merged state.",
+  '  } else if (path.startsWith(`/repos/${owner}/${repo}/pulls/`)) {',
+  '    body = { state: "closed", merged_at: "2026-01-01T00:00:00Z" };',
   "  } else {",
   "    body = [];",
   "  }",
@@ -332,6 +343,7 @@ function runCollectWithStubbedFetch({ verdict, sha }) {
         ["--import", preloadPath, BIN_PATH, "collect",
          "--owner", "o", "--repo", "r", "--sha", sha,
          "--task", "TASK-1", "--report", "test-report", "--branch", "main",
+         "--pr", "42",
          "--json"],
         { encoding: "utf8", maxBuffer: 1 << 20, env }
       );
