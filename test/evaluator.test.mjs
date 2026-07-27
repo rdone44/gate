@@ -233,32 +233,85 @@ test("Rule 4 FAIL: path empty", () => {
   assert.throws(() => evaluate(doc), InputError);
 });
 
-// ---------- SPEC §7 — always evaluates all four rules ----------
+// ---------- SPEC v0.3.1 — Rule 5: pr-merged ----------
 
-test("all four rules present in order even on failure", () => {
+test("Rule 5 PASS: pr.state = merged", () => {
+  const doc = basePass();
+  doc.pr = { state: "merged" };
+  const r = evaluate(doc);
+  const rule = r.rules.find((x) => x.id === "pr-merged");
+  assert.equal(rule.verdict, "PASS");
+  assert.equal(r.verdict, "PASS");
+});
+
+test("Rule 5 FAIL: pr.state = open", () => {
+  const doc = basePass();
+  doc.pr = { state: "open" };
+  const r = evaluate(doc);
+  const rule = r.rules.find((x) => x.id === "pr-merged");
+  assert.equal(rule.verdict, "FAIL");
+  assert.match(rule.message, /open/);
+  assert.equal(r.verdict, "FAIL");
+});
+
+test("Rule 5 PASS: pr field absent (IP empty)", () => {
+  const doc = basePass();
+  delete doc.pr;
+  const r = evaluate(doc);
+  const rule = r.rules.find((x) => x.id === "pr-merged");
+  assert.equal(rule.verdict, "PASS");
+  assert.equal(r.verdict, "PASS");
+});
+
+test("Rule 5 PASS: pr field is null", () => {
+  const doc = basePass();
+  doc.pr = null;
+  const r = evaluate(doc);
+  const rule = r.rules.find((x) => x.id === "pr-merged");
+  assert.equal(rule.verdict, "PASS");
+});
+
+test("Rule 5 FAIL: pr.state = closed (not merged)", () => {
+  const doc = basePass();
+  doc.pr = { state: "closed" };
+  const r = evaluate(doc);
+  const rule = r.rules.find((x) => x.id === "pr-merged");
+  assert.equal(rule.verdict, "FAIL");
+  assert.match(rule.message, /closed/);
+});
+
+test("Rule 5: pr with non-string state rejected as input error", () => {
+  const doc = basePass();
+  doc.pr = { state: 42 };
+  assert.throws(() => evaluate(doc), InputError);
+});
+
+// ---------- SPEC §7 — always evaluates all five rules ----------
+
+test("all five rules present in order even on failure", () => {
   const r = evaluate(baseFail());
-  assert.equal(r.rules.length, 4);
-  assert.equal(r.rules.map((x) => x.id).join(","), "task-associated,commit-exists,ci-passes,test-report-exists");
+  assert.equal(r.rules.length, 5);
+  assert.equal(r.rules.map((x) => x.id).join(","), "task-associated,commit-exists,ci-passes,test-report-exists,pr-merged");
   assert.equal(r.verdict, "FAIL");
   const passCount = r.rules.filter((x) => x.verdict === "PASS").length;
-  assert.equal(passCount, 1); // only commit-exists
+  assert.equal(passCount, 2); // commit-exists + pr-merged (no pr field → PASS)
 });
 
-test("summary counts correct on FAIL (1 pass / 3 fail)", () => {
+test("summary counts correct on FAIL (2 pass / 3 fail)", () => {
   const r = evaluate(baseFail());
-  assert.equal(r.summary.passed, 1);
+  assert.equal(r.summary.passed, 2);
   assert.equal(r.summary.failed, 3);
-  assert.equal(r.summary.total, 4);
+  assert.equal(r.summary.total, 5);
 });
 
-test("summary counts correct on PASS (4 / 0)", () => {
+test("summary counts correct on PASS (5 / 0)", () => {
   const r = evaluate(basePass());
-  assert.equal(r.summary.passed, 4);
+  assert.equal(r.summary.passed, 5);
   assert.equal(r.summary.failed, 0);
-  assert.equal(r.summary.total, 4);
+  assert.equal(r.summary.total, 5);
 });
 
-test("verdict PASS only when all four pass", () => {
+test("verdict PASS only when all five pass", () => {
   assert.equal(evaluate(basePass()).verdict, "PASS");
   const doc = basePass();
   doc.testReport.exists = false;
@@ -274,9 +327,9 @@ test("formatJson output matches documented schema", () => {
   assert.equal(parsed.verdict, "PASS");
   assert.equal(parsed.taskId, "TASK-123");
   assert.equal(parsed.commitSha, "0123456789abcdef0123456789abcdef01234567");
-  assert.equal(parsed.summary.passed, 4);
+  assert.equal(parsed.summary.passed, 5);
   assert.equal(parsed.summary.failed, 0);
-  assert.equal(parsed.summary.total, 4);
+  assert.equal(parsed.summary.total, 5);
   assert.ok(Array.isArray(parsed.rules));
   assert.equal(parsed.rules[0].id, "task-associated");
   assert.equal(parsed.rules[0].verdict, "PASS");
@@ -295,9 +348,9 @@ test("JSON output FAIL example matches SPEC §10 structure", () => {
   const r = evaluate(baseFail());
   const parsed = JSON.parse(formatJson(r));
   assert.equal(parsed.verdict, "FAIL");
-  assert.equal(parsed.summary.passed, 1);
+  assert.equal(parsed.summary.passed, 2);
   assert.equal(parsed.summary.failed, 3);
-  assert.equal(parsed.summary.total, 4);
+  assert.equal(parsed.summary.total, 5);
   assert.equal(parsed.rules[0].id, "task-associated");
   assert.equal(parsed.rules[0].verdict, "FAIL");
   assert.equal(parsed.rules[1].id, "commit-exists");
@@ -307,6 +360,8 @@ test("JSON output FAIL example matches SPEC §10 structure", () => {
   assert.match(parsed.rules[2].message, /status=in_progress/);
   assert.equal(parsed.rules[3].id, "test-report-exists");
   assert.equal(parsed.rules[3].verdict, "FAIL");
+  assert.equal(parsed.rules[4].id, "pr-merged");
+  assert.equal(parsed.rules[4].verdict, "PASS");
 });
 
 // ---------- SPEC §10 — terminal summary ----------
@@ -315,23 +370,25 @@ test("formatSummary prints PASS/FAIL head line and per-rule lines", () => {
   const r = evaluate(basePass());
   const out = formatSummary(r);
   const lines = out.split("\n");
-  assert.match(lines[0], /^PASS github-actions-gate: 4\/4 rules passed/);
-  assert.ok(lines.length >= 5);
+  assert.match(lines[0], /^PASS github-actions-gate: 5\/5 rules passed/);
+  assert.ok(lines.length >= 6);
   assert.match(lines[1], /^PASS task-associated:/);
   assert.match(lines[2], /^PASS commit-exists:/);
   assert.match(lines[3], /^PASS ci-passes:/);
   assert.match(lines[4], /^PASS test-report-exists:/);
+  assert.match(lines[5], /^PASS pr-merged:/);
 });
 
 test("formatSummary FAIL example matches documented output", () => {
   const r = evaluate(baseFail());
   const out = formatSummary(r);
   const lines = out.split("\n");
-  assert.match(lines[0], /^FAIL github-actions-gate: 1\/4 rules passed/);
+  assert.match(lines[0], /^FAIL github-actions-gate: 2\/5 rules passed/);
   assert.match(lines[1], /^FAIL task-associated:/);
   assert.match(lines[2], /^PASS commit-exists:/);
   assert.match(lines[3], /^FAIL ci-passes:/);
   assert.match(lines[4], /^FAIL test-report-exists:/);
+  assert.match(lines[5], /^PASS pr-merged:/);
 });
 
 // buildReport has no mutable shared state
@@ -482,4 +539,42 @@ test("CLI: extra positional argument after flags exits 2", () => {
   const file = new URL("../fixtures/pass.json", import.meta.url).pathname;
   const { exitCode } = runGate(["evaluate", "--input", file, "extra"]);
   assert.equal(exitCode, 2);
+});
+
+// ---------- SPEC v0.3.1 — CLI pr-merged fixtures ----------
+
+test("CLI: pr-merged-pass fixture exits 0 and --json includes pr-merged rule", () => {
+  const file = new URL("../fixtures/pr-merged-pass.json", import.meta.url).pathname;
+  const { stdout, exitCode } = runGate(["evaluate", "--input", file, "--json"]);
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.verdict, "PASS");
+  assert.equal(parsed.summary.total, 5);
+  const rule = parsed.rules.find((x) => x.id === "pr-merged");
+  assert.ok(rule);
+  assert.equal(rule.verdict, "PASS");
+  assert.match(rule.message, /merged/);
+});
+
+test("CLI: pr-merged-fail fixture exits 1 and --json shows pr-merged FAIL", () => {
+  const file = new URL("../fixtures/pr-merged-fail.json", import.meta.url).pathname;
+  const { stdout, exitCode } = runGate(["evaluate", "--input", file, "--json"]);
+  assert.equal(exitCode, 1);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.verdict, "FAIL");
+  const rule = parsed.rules.find((x) => x.id === "pr-merged");
+  assert.ok(rule);
+  assert.equal(rule.verdict, "FAIL");
+  assert.match(rule.message, /open/);
+});
+
+test("CLI: pr-merged-empty fixture exits 0 (no pr field → PASS)", () => {
+  const file = new URL("../fixtures/pr-merged-empty.json", import.meta.url).pathname;
+  const { stdout, exitCode } = runGate(["evaluate", "--input", file, "--json"]);
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.verdict, "PASS");
+  const rule = parsed.rules.find((x) => x.id === "pr-merged");
+  assert.equal(rule.verdict, "PASS");
+  assert.match(rule.message, /empty/);
 });

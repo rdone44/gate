@@ -54,6 +54,15 @@ export function validateInput(input) {
   assertInput(testReport && typeof testReport === "object", "testReport must be an object");
   assertInput(isNonEmptyString(testReport.path), "testReport.path must be a non-empty string");
   assertInput(typeof testReport.exists === "boolean", "testReport.exists must be a boolean");
+
+  // SPEC v0.3.1 — optional pr field from collector §16 product.
+  // If present, must be an object with a non-empty string `state`.
+  if (input.pr !== undefined && input.pr !== null) {
+    assertInput(typeof input.pr === "object" && !Array.isArray(input.pr), "pr must be an object or null");
+    if (input.pr !== null) {
+      assertInput(isNonEmptyString(input.pr.state), "pr.state must be a non-empty string");
+    }
+  }
 }
 
 // SPEC §7 — always returns all four rule results, never short-circuits.
@@ -124,8 +133,30 @@ export function evaluate(input) {
     });
   }
 
+  // Rule 5: pr_merged (SPEC v0.3.1) — PASS if pr is absent/null (IP empty)
+  // or pr.state === "merged". Any other state FAILs.
+  {
+    const pr = input.pr;
+    let passed;
+    let message;
+    if (pr === undefined || pr === null) {
+      passed = true;
+      message = "No PR evidence; pr field is empty — PASS by default.";
+    } else {
+      passed = pr.state === "merged";
+      message = passed
+        ? `PR state is merged.`
+        : `PR state is ${pr.state}, not merged.`;
+    }
+    rules.push({
+      id: "pr-merged",
+      verdict: passed ? "PASS" : "FAIL",
+      message,
+    });
+  }
+
   const passedCount = rules.filter((r) => r.verdict === "PASS").length;
-  const verdict = passedCount === 4 ? "PASS" : "FAIL";
+  const verdict = passedCount === rules.length ? "PASS" : "FAIL";
 
   return {
     schemaVersion: 1,
@@ -134,8 +165,8 @@ export function evaluate(input) {
     commitSha,
     summary: {
       passed: passedCount,
-      failed: 4 - passedCount,
-      total: 4,
+      failed: rules.length - passedCount,
+      total: rules.length,
     },
     rules,
   };
