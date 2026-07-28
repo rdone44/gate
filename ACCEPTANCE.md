@@ -90,9 +90,9 @@ $ node bin/gate.mjs evaluate --input fixtures/pass.json --json
   "taskId": "TASK-123",
   "commitSha": "0123456789abcdef0123456789abcdef01234567",
   "summary": {
-    "passed": 4,
+    "passed": 5,
     "failed": 0,
-    "total": 4
+    "total": 5
   },
   "rules": [
     {
@@ -114,6 +114,11 @@ $ node bin/gate.mjs evaluate --input fixtures/pass.json --json
       "id": "test-report-exists",
       "verdict": "PASS",
       "message": "Test report exists at artifacts/test-report.json."
+    },
+    {
+      "id": "pr-merged",
+      "verdict": "PASS",
+      "message": "PR state is merged."
     }
   ]
 }
