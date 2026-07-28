@@ -14,11 +14,11 @@ Present and inspected:
 - `PRODUCT_SPEC.md` — product specification
 - `package.json` — Node.js ESM project config  (`"type": "module"`, `bin` → `bin/gate.mjs`)
 - `bin/gate.mjs` — CLI entry point (single-file: arg parse + file read + evaluate + report + exit)
-- `src/evaluator.mjs` — pure evaluator (four rules: `task_associated`, `commit_exists`, `ci_passed`, `test_report_present`)
+- `src/evaluator.mjs` — pure evaluator (five rules: `task_associated`, `commit_exists`, `ci_passed`, `test_report_present`, `pr_merged`)
 - `src/report.mjs` — `formatJson()` / `formatReport()` output formatters
 - `action.yml` — Docker-based GitHub Action wrapper (`using: docker`, `image: Dockerfile`)
 - `Dockerfile` — `node:22-alpine`, copies `package.json` + `bin/` + `src/`, ENTRYPOINT `node bin/gate.mjs`
-- `fixtures/pass.json` — 4/4 rules pass
+- `fixtures/pass.json` — 5/5 rules pass
 - `fixtures/fail.json` — CI failure + test failures → rejected
 - `test/evaluator.test.mjs` — unit tests for evaluator/report/CLI (31 tests)
 - `test/collector.test.mjs` — unit + §16.10 integration tests for collector (56 tests)
@@ -48,7 +48,7 @@ Test files:
 - `test/evaluator.test.mjs` — 31 tests (evaluator rules, report formatters, CLI flags/exit codes)
 - `test/collector.test.mjs` — 56 tests (fetchPage, collectAll, buildEvaluationDocument, §16.10 stubbed-fetch integration)
 
-Verified behavior: all four rules, pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON, collector §16.10 end-to-end pipeline."
+Verified behavior: all five rules (including pr-merged), pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON, collector §16.10 end-to-end pipeline."
 
 ### CLI fixtures (local, real command runs)
 
@@ -56,11 +56,12 @@ PASS fixture:
 
 ```
 $ node bin/gate.mjs evaluate --input fixtures/pass.json
-PASS github-actions-gate: 4/4 rules passed
+PASS github-actions-gate: 5/5 rules passed
 PASS task-associated: Task TASK-123 is associated with the change.
 PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
 PASS ci-passes: All 1 CI check completed successfully.
 PASS test-report-exists: Test report exists at artifacts/test-report.json.
+PASS pr-merged: PR state is merged.
 $ echo $?
 0
 ```
@@ -69,11 +70,12 @@ FAIL fixture:
 
 ```
 $ node bin/gate.mjs evaluate --input fixtures/fail.json
-FAIL github-actions-gate: 1/4 rules passed
+FAIL github-actions-gate: 2/5 rules passed
 FAIL task-associated: Task TASK-123 is not associated with the change.
 PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
 FAIL ci-passes: CI check test is not successful: status=in_progress, conclusion=null.
 FAIL test-report-exists: Test report does not exist at artifacts/test-report.json.
+PASS pr-merged: PR state is merged.
 $ echo $?
 1
 ```
@@ -133,20 +135,22 @@ Docker expects fixtures to be volume-mounted (Dockerfile only copies `package.js
 
 ```
 $ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:audit evaluate --input fixtures/pass.json
-PASS github-actions-gate: 4/4 rules passed
+PASS github-actions-gate: 5/5 rules passed
 PASS task-associated: Task TASK-123 is associated with the change.
 PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
 PASS ci-passes: All 1 CI check completed successfully.
 PASS test-report-exists: Test report exists at artifacts/test-report.json.
+PASS pr-merged: PR state is merged.
 $ echo $?
 0
 
 $ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:audit evaluate --input fixtures/fail.json
-FAIL github-actions-gate: 1/4 rules passed
+FAIL github-actions-gate: 2/5 rules passed
 FAIL task-associated: Task TASK-123 is not associated with the change.
 PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
 FAIL ci-passes: CI check test is not successful: status=in_progress, conclusion=null.
 FAIL test-report-exists: Test report does not exist at artifacts/test-report.json.
+PASS pr-merged: PR state is merged.
 $ echo $?
 1
 ```
@@ -166,9 +170,9 @@ No external GitHub API call is made by the workflow — it only exercises the of
 
 | Requirement                                              | Verdict | Evidence |
 | ---                                                      | ---     | ---      |
-| Product specification exists                             | PASS    | `PRODUCT_SPEC.md` defines users, workflow, contracts, four rules, and checklist. |
-| Node.js ESM evaluator, CLI, and report formatter         | PASS    | `src/evaluator.mjs` (4 rules), `bin/gate.mjs`, `src/report.mjs`; `"type": "module"` in `package.json`. |
-| Four deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` + `test/collector.test.mjs` — 87/87 pass. |
+| Product specification exists                             | PASS    | `PRODUCT_SPEC.md` defines users, workflow, contracts, five rules, and checklist. |
+| Node.js ESM evaluator, CLI, and report formatter         | PASS    | `src/evaluator.mjs` (5 rules), `bin/gate.mjs`, `src/report.mjs`; `"type": "module"` in `package.json`. |
+| Five deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` + `test/collector.test.mjs` — 87/87 pass (incl. pr-merged). |
 | Machine and terminal reports                             | PASS    | `formatJson()` returns valid JSON; `formatReport()` returns human-readable text containing `PASS`/`FAIL`. Both exercised by tests + real CLI runs. |
 | Offline fixtures and example                             | PASS    | `fixtures/pass.json` exits 0; `fixtures/fail.json` exits 1; both verified via `node bin/gate.mjs evaluate --input`. |
 | Automated tests                                          | PASS    | Real `npm test` run: 87/87 passed (31 evaluator + 56 collector), 2177 ms. |
