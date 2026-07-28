@@ -20,12 +20,13 @@ Exit codes:
 
 ## Rule set
 
-Four rules, each must pass for a delivery to be accepted:
+Five rules, each must pass for a delivery to be accepted:
 
 1. **task_associated** — `task.id` and `task.title` present
 2. **commit_exists** — `commit.sha` matches `/^[0-9a-f]{7,40}$/`
 3. **ci_passed** — `run.status === "success"`
 4. **test_report_present** — `testReport.summary.total > 0` and `failed === 0`
+5. **pr_merged** — `pullRequest.state === "merged"`
 
 ## Docker
 
