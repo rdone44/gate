@@ -8,4 +8,6 @@ runs:
   using: "docker"
   image: "Dockerfile"
   args:
+    - evaluate
+    - --input
     - ${{ inputs.fixture-path }}

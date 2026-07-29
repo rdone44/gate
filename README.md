@@ -7,9 +7,9 @@ Deterministic Node.js CLI that accepts a delivery only when its task association
 ```sh
 npm install
 npm test
-node bin/gate.mjs fixtures/pass.json      # PASS → exit 0
-node bin/gate.mjs fixtures/fail.json      # FAIL → exit 1
-node bin/gate.mjs fixtures/fail.json --json
+node bin/gate.mjs evaluate --input fixtures/pass.json      # PASS → exit 0
+node bin/gate.mjs evaluate --input fixtures/fail.json      # FAIL → exit 1
+node bin/gate.mjs evaluate --input fixtures/fail.json --json
 ```
 
 Exit codes:
@@ -60,7 +60,7 @@ To use this repository as a reusable Action from another repo, reference `action
     fixture-path: evaluation.json
 ```
 
-`action.yml` is Docker-based (`using: docker`, `image: Dockerfile`). Evaluation JSON is passed as the first argument to `bin/gate.mjs`.
+`action.yml` is Docker-based (`using: docker`, `image: Dockerfile`). Evaluation JSON is passed via `evaluate --input <path>`.
 
 ## Collect (GitHub collector mode)
 
