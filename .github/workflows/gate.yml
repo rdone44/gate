@@ -20,6 +20,12 @@ jobs:
 
       - run: npm test
 
+      - run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --json
+        name: Collector smoke — real GITHUB_TOKEN, first CI run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
       - run: node bin/gate.mjs evaluate --input fixtures/pass.json
         name: PASS fixture — exit 0 expected
 
