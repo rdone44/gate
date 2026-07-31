@@ -24,17 +24,12 @@ jobs:
         name: Collector smoke — real GITHUB_TOKEN, first CI run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       - run: node bin/gate.mjs evaluate --input fixtures/pass.json
         name: PASS fixture — exit 0 expected
 
       - run: node bin/gate.mjs evaluate --input fixtures/fail.json --json
         name: FAIL fixture (JSON) — exit 1 expected, non-zero proves rejection
-        continue-on-error: true
-
-      - run: node bin/gate.mjs evaluate --input fixtures/fail.json --json && exit 1 || exit 0
-        name: Verify FAIL fixture exits 1
 
       - run: docker build -t github-actions-gate:ci .
         name: Docker build

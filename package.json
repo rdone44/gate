@@ -1,6 +1,6 @@
 {
   "name": "github-actions-gate",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "GitHub Actions Gate — verifies that a delivery (task + commit + CI run + test report) satisfies every release gate rule.",
   "type": "module",
   "private": true,
