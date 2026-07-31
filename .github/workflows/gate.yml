@@ -20,8 +20,9 @@ jobs:
 
       - run: npm test
 
-      - run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --json
-        name: Collector smoke — real GITHUB_TOKEN, first CI run
+      - if: github.event_name == 'pull_request'
+        run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --json
+        name: Collector smoke — real GITHUB_TOKEN, PR runs only
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
