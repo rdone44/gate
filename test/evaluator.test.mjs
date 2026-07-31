@@ -579,3 +579,22 @@ test("CLI: pr-merged-empty fixture exits 1 (no pr field → FAIL)", () => {
   assert.equal(rule.verdict, "FAIL");
   assert.match(rule.message, /empty/);
 });
+
+// ---------- v0.5.3 — additional taskAssociated coverage ----------
+
+test("Rule 1 FAIL: whitespace-only task title still rejected by evaluate", () => {
+  const doc = basePass();
+  doc.task.title = "   ";
+  // validateInput should reject this before evaluate is reached
+  assert.throws(() => validateInput(doc), InputError);
+});
+
+test("Rule 1 PASS: evaluate does not throw when task.title has leading/trailing spaces", () => {
+  // schema validation trims; a non-empty (after trim) title is valid.
+  const doc = basePass();
+  doc.task.title = "  Release gate v0.5.3  ".trim();
+  assert.doesNotThrow(() => validateInput(doc));
+  const r = evaluate(doc);
+  const rule = r.rules.find((x) => x.id === "task-associated");
+  assert.equal(rule.verdict, "PASS");
+});

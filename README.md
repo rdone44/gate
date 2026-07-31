@@ -95,6 +95,13 @@ Suite: `node --test test/*.test.mjs` — 87 tests, all passing.
 | `Dockerfile`          | `node:22-alpine` image                               |
 | `.github/workflows/gate.yml` | CI workflow — test + fixture + Docker           |
 
+## Changelog
+
+- **v0.5.3** — Collector CI smoke step verified end-to-end on a real PR; version bump for release-gate validation.
+- **v0.5.2** — Added `example:offline` and `test:collect` npm scripts (SPEC §13/§16.8 acceptance).
+- **v0.5.1** — Collector smoke step: passes `--task` and `--pr` from PR context to the smoke step; first real CI run with `GITHUB_TOKEN`.
+- **v0.5.0** — Added `collect` subcommand (GitHub collector mode, SPEC §16) with integration tests.
+
 ## License
 
 MIT
