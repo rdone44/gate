@@ -7,16 +7,42 @@ Deterministic Node.js CLI that accepts a delivery only when its task association
 ```sh
 npm install
 npm test
-node bin/gate.mjs evaluate --input fixtures/pass.json      # PASS → exit 0
-node bin/gate.mjs evaluate --input fixtures/fail.json      # FAIL → exit 1
-node bin/gate.mjs evaluate --input fixtures/fail.json --json
+```
+
+Three real examples using the bundled fixtures:
+
+```sh
+# 1) All five rules pass → exit 0
+node bin/gate.mjs evaluate --input fixtures/pass.json
+# PASS github-actions-gate: 5/5 rules passed
+# PASS task-associated: Task TASK-123 is associated with the change.
+# PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+# PASS ci-passes: All 1 CI check completed successfully.
+# PASS test-report-exists: Test report exists at artifacts/test-report.json.
+# PASS pr-merged: PR state is merged.
+# (exit 0)
+
+# 2) CI + test-report rules fail → exit 1
+node bin/gate.mjs evaluate --input fixtures/fail.json
+# FAIL github-actions-gate: 2/5 rules passed
+# FAIL task-associated: Task TASK-123 is not associated with the change.
+# PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+# FAIL ci-passes: CI check test is not successful: status=in_progress, conclusion=null.
+# FAIL test-report-exists: Test report does not exist at artifacts/test-report.json.
+# PASS pr-merged: PR state is merged.
+# (exit 1)
+
+# 3) Schema violation (empty task.id) → exit 2
+node bin/gate.mjs evaluate --input fixtures/schema-violation-empty-task-id.json
+# github-actions-gate: schema violation: task.id must be a non-empty string
+# (exit 2)
 ```
 
 Exit codes:
 
-- PASS fixture exits `0`.
-- FAIL fixture exits `1`.
-- Invalid JSON or unreadable file exits `2`.
+- `0` — all five rules passed; delivery accepted.
+- `1` — one or more rules failed; delivery rejected.
+- `2` — input is unreadable, not valid JSON, or violates the required schema.
 
 ## Rule set
 
