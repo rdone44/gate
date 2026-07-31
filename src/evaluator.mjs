@@ -32,6 +32,10 @@ export function validateInput(input) {
   const task = input.task;
   assertInput(task && typeof task === "object", "task must be an object");
   assertInput(isNonEmptyString(task.id), "task.id must be a non-empty string");
+  // task.title is optional (SPEC §6) but if present must be a non-empty-after-trim string.
+  if (task.title !== undefined) {
+    assertInput(typeof task.title === "string" && task.title.trim().length > 0, "task.title must be a non-empty string when provided");
+  }
 
   const change = input.change;
   assertInput(change && typeof change === "object", "change must be an object");
