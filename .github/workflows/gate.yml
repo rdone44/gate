@@ -31,7 +31,7 @@ jobs:
 
       - run: node bin/gate.mjs evaluate --input fixtures/fail.json --json
         name: FAIL fixture (JSON) — exit 1 expected, non-zero proves rejection
-        continue-on-error: true
+        continue-on-error: true # 仅容忍预期失败，不覆盖 gate 判定
 
       - run: docker build -t github-actions-gate:ci .
         name: Docker build
