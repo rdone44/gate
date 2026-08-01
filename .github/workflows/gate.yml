@@ -48,7 +48,7 @@ jobs:
           gh pr comment ${{ github.event.pull_request.number }} --body-file gate-comment.md
         name: Post verdict as PR comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
 
