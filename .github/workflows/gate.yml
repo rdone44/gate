@@ -21,25 +21,24 @@ jobs:
       - run: npm test
 
       - if: github.event_name == 'pull_request'
-        run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --output gate-result.json --json
-        name: Collector — real GITHUB_TOKEN, write verdict to gate-result.json
+        run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --output gate-result.json
+        name: Collector — real GITHUB_TOKEN, evaluate + write verdict to gate-result.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true # FAIL verdict exits 1; gate decision reported
+        continue-on-error: true # FAIL verdict exits 1; verdict is reported in next step, not in job status
 
       - if: github.event_name == 'pull_request'
         run: |
-          node bin/gate.mjs evaluate --input gate-result.json --json > gate-verdict.json
           echo "=== GATE VERDICT ==="
-          node -e "const v=require('./gate-verdict.json');console.log('verdict='+v.verdict);v.rules.forEach(r=>console.log(r.id+'='+r.verdict+' | '+r.message))"
+          node -e "const v=require('./gate-result.json');console.log('verdict='+v.verdict);v.rules.forEach(r=>console.log(r.id+'='+r.verdict+' | '+r.message))"
           echo "=== END VERDICT ==="
-        name: Evaluate verdict from collector output
+        name: Print verdict to Actions log
         continue-on-error: true
 
       - if: github.event_name == 'pull_request'
         run: |
           node -e "
-          const v=require('./gate-verdict.json');
+          const v=require('./gate-result.json');
           let body='## 🚦 Gate Verdict\n\n**'+v.verdict+'**\n\n';
           body+='| Rule | Verdict | Message |\n|------|---------|--------|\n';
           v.rules.forEach(r=>{body+='| \`'+r.id+'\` | '+r.verdict+' | '+r.message.replace(/\|/g,'\\\\|')+' |\n'});
@@ -51,6 +50,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
 
       - run: node bin/gate.mjs evaluate --input fixtures/pass.json
         name: PASS fixture — exit 0 expected
