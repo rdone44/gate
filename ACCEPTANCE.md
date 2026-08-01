@@ -188,10 +188,22 @@ No external GitHub API call is made by the workflow — it only exercises the of
 
 ## Known gaps (honest disclosure)
 
-- **Hosted Actions run pending.** The remote `origin` is configured (github.com/rdone44/github-actions-gate.git) and tags `v0.1.0`–`v0.2.0` have been pushed. The `gate.yml` workflow is syntactically valid and will execute on hosted GitHub Actions runners once a tagged push triggers it.
+- **Hosted Actions run executed — PR #8 collector smoke (run ID 30684191149).** On 2026-08-01, a hosted GitHub Actions workflow run on branch `test/pr-trigger-collector-smoke` executed the collector smoke step with a real `GITHUB_TOKEN` against live PR #8 data (`--owner rdone44 --repo github-actions-gate --sha 27c986b3281a38695c254ea44fc77384b2d69d20 --task 8 --pr 8 --json`). The collector successfully fetched the commit and PR from the GitHub API and produced a deterministic evaluator verdict. Result: 2/5 rules PASS, exit code 1 (rule failure, not crash).
+
+  Rule verdicts from the real hosted run:
+
+  | Rule | Verdict | Message |
+  |------|---------|---------|
+  | task-associated | PASS | Task 8 is associated with the change. |
+  | commit-exists | PASS | Commit 27c986b3281a38695c254ea44fc77384b2d69d20 exists. |
+  | ci-passes | FAIL | No CI checks were provided. |
+  | test-report-exists | FAIL | Test report does not exist at artifacts/. |
+  | pr-merged | FAIL | PR state is open, not merged. |
+
+  This confirms the collector→evaluate pipeline works end-to-end against a real GitHub API on hosted runners. The FAIL verdict is the correct, expected outcome: PR #8 was open (not merged), had no check-runs at push time, and had no test-report artifact — the gate correctly rejected it. Previous gap "hosted Actions run pending" is resolved.
 - **GitHub collector mode shipped (v0.3.0–v0.5.3).** `src/collector.mjs` and `bin/gate.mjs collect` are now implemented and tested (89/89 pass including §16.10 stubbed-fetch integration tests). The previous gap — CLI only performing offline evaluation — is resolved. Commit `d5ec4e1` adds whitespace-only task.title rejection (v0.5.3).
 - Previous audit (2026-07-19) referenced file paths `bin/github-actions-gate.js`, `lib/evaluator.js`, `lib/github.js` that do not exist — that report was erroneous. Real paths are `bin/gate.mjs`, `src/evaluator.mjs`, `src/report.mjs` as documented here.
 
 ## Decision
 
-Repository offline MVP: accepted with honest caveat — local build + tests + Docker all pass on real execution; hosted-Actions execution is pending a remote. GitHub API mode described in README/SPEC is an outstanding scope item, not a regression of this audit.
+Repository: accepted — local build + tests + Docker all pass on real execution; hosted Actions collector smoke executed on PR #8 (run 30684191149) confirming the collector→evaluate pipeline against the live GitHub API. Next milestone: tag v1.0.
