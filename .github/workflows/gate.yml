@@ -25,6 +25,7 @@ jobs:
         name: Collector — real GITHUB_TOKEN, write verdict to gate-result.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # FAIL verdict exits 1; gate decision reported
 
       - if: github.event_name == 'pull_request'
         run: |
