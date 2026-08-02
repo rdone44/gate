@@ -204,6 +204,47 @@ No external GitHub API call is made by the workflow — it only exercises the of
 - **GitHub collector mode shipped (v0.3.0–v0.5.3).** `src/collector.mjs` and `bin/gate.mjs collect` are now implemented and tested (89/89 pass including §16.10 stubbed-fetch integration tests). The previous gap — CLI only performing offline evaluation — is resolved. Commit `d5ec4e1` adds whitespace-only task.title rejection (v0.5.3).
 - Previous audit (2026-07-19) referenced file paths `bin/github-actions-gate.js`, `lib/evaluator.js`, `lib/github.js` that do not exist — that report was erroneous. Real paths are `bin/gate.mjs`, `src/evaluator.mjs`, `src/report.mjs` as documented here.
 
+## Docker Action end-to-end (nektos/act)
+
+Two Docker-action end-to-end runs were executed locally with `./bin/act` (nektos/act, statically-linked ELF, `bin/act`) driving the real `action.yml` (`using: docker`, `image: Dockerfile`) against the shipped fixtures. A throwaway workflow `.github/workflows/act-docker-action-test.yml` invokes `uses: ./` with `inputs.fixture-path`; it is act-only scaffolding and not wired into the project's real `gate.yml` (which uses the Node entrypoint on hosted runners).
+
+Run log for pass fixture (job `docker-action-pass`, command: `./bin/act -W .github/workflows/act-docker-action-test.yml -b -j docker-action-pass`):
+
+```
+[act-docker-action-test/docker-action-pass] 🐳  docker build -t act-dockeraction:latest --platform linux/amd64 /root/github-actions-gate
+[act-docker-action-test/docker-action-pass]   🐳  docker create image=act-dockeraction:latest platform=linux/amd64 entrypoint=[] cmd=["evaluate" "--input" "fixtures/pass.json"]
+[act-docker-action-test/docker-action-pass]   🐳  docker run image=act-dockeraction:latest platform=linux/amd64 entrypoint=[] cmd=["evaluate" "--input" "fixtures/pass.json"]
+[act-docker-action-test/docker-action-pass]   | PASS github-actions-gate: 5/5 rules passed
+[act-docker-action-test/docker-action-pass]   | PASS task-associated: Task TASK-123 is associated with the change.
+[act-docker-action-test/docker-action-pass]   | PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+[act-docker-action-test/docker-action-pass]   | PASS ci-passes: All 1 CI check completed successfully.
+[act-docker-action-test/docker-action-pass]   | PASS test-report-exists: Test report exists at artifacts/test-report.json.
+[act-docker-action-test/docker-action-pass]   | PASS pr-merged: PR state is merged.
+[act-docker-action-test/docker-action-pass]   ✅  Success - Main ./ [7.290052047s]
+[act-docker-action-test/docker-action-pass] 🏁  Job succeeded
+```
+Exit code: `0`.
+
+Run log for fail fixture (job `docker-action-fail`, command: `./bin/act -W .github/workflows/act-docker-action-test.yml -b -j docker-action-fail`):
+
+```
+[act-docker-action-test/docker-action-fail]   🐳  docker create image=act-dockeraction:latest platform=linux/amd64 entrypoint=[] cmd=["evaluate" "--input" "fixtures/fail.json"]
+[act-docker-action-test/docker-action-fail]   🐳  docker run image=act-dockeraction:latest platform=linux/amd64 entrypoint=[] cmd=["evaluate" "--input" "fixtures/fail.json"]
+[act-docker-action-test/docker-action-fail]   | FAIL github-actions-gate: 2/5 rules passed
+[act-docker-action-test/docker-action-fail]   | FAIL task-associated: Task TASK-123 is not associated with the change.
+[act-docker-action-test/docker-action-fail]   | PASS commit-exists: Commit 0123456789abcdef0123456789abcdef01234567 exists.
+[act-docker-action-test/docker-action-fail]   | FAIL ci-passes: CI check test is not successful: status=in_progress, conclusion=null.
+[act-docker-action-test/docker-action-fail]   | FAIL test-report-exists: Test report does not exist at artifacts/test-report.json.
+[act-docker-action-test/docker-action-fail]   | PASS pr-merged: PR state is merged.
+[act-docker-action-test/docker-action-fail]   ❌  Failure - Main ./ [1.50004292s]
+[act-docker-action-test/docker-action-fail]   exit with `FAILURE`: 1
+[act-docker-action-test/docker-action-fail] 🏁  Job failed
+Error: Job 'docker-action-fail' failed
+```
+Exit code: `1`.
+
+Both Docker container builds (`docker build -t act-dockeraction:latest`) succeeded; the Docker image `entrypoint` ran the evaluator with the fixture and produced identical verdicts to the Node-level evidence (pass→5/5 PASS→exit 0, fail→2/5 PASS→exit 1), closing the Docker-action evidence gap.
+
 ## Decision
 
 Repository: accepted — local build + tests + Docker all pass on real execution; hosted Actions collector smoke executed on PR #8 (run 30684191149) confirming the collector→evaluate pipeline against the live GitHub API. Next milestone: tag v1.0.
