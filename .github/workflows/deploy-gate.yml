@@ -1,0 +1,206 @@
+name: deploy-gate
+
+# ─────────────────────────────────────────────────────────────────────
+# Deployment Gate — promoted from static reviewer to deployment blocker
+# ─────────────────────────────────────────────────────────────────────
+# A PR merge produces a push to main. This workflow runs the gate against
+# the merged commit, BEFORE any deploy step. Gate FAIL (exit 1) aborts the
+# run — the deploy step is physically unreachable. Gate PASS (exit 0)
+# hands off to the deploy job via needs:.
+#
+# Reuses bin/gate.mjs collect — the same five-rule evaluator that the
+# PR-time workflow already exercises. No rule logic rewritten.
+# ─────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: # manual trigger — for ad-hoc unleashes or incident rollback verification
+
+permissions:
+  contents: read        # checkout
+  actions: read         # collector reads check-runs / artifacts via REST API
+  deployments: write    # deploy step creates a GitHub deployment record
+  statuses: read        # collector may read commit status
+
+concurrency:
+  group: deploy-gate-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a deploy gate mid-run; let it finish
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 1 — gate: run the five-rule evaluator against the merged commit.
+  # FAIL  → exit 1 → this job fails → deploy job (needs:) is skipped.
+  # PASS  → exit 0 → job succeeds → deploy job runs.
+  # ─────────────────────────────────────────────────────────────────
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.gate-result.outputs.verdict }}
+      commit-sha: ${{ steps.gate-result.outputs.commit-sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history not needed, but fetch-depth:0 lets collector see merge context.
+          # Shallow checkout is sufficient for collect (it hits the REST API for evidence).
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm install        # gate.mjs imports src/ — no dev-deps needed at runtime, but keep parity
+
+      # ── Resolve the PR number for the merged commit ───────────────
+      # push-to-main after a merge lacks github.event.pull_request, so we
+      # look up the PR that generated this merge commit via the REST API.
+      # Two strategies tried (curl first — no dependency on `gh` JSON field
+      # naming). When neither resolves, gate runs WITHOUT --pr so the
+      # pr-merged rule FAILs by design (correct: no PR evidence → no deploy).
+      - name: Resolve merged PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA="${{ github.sha }}"
+          REPO="${{ github.repository }}"
+
+          # Strategy A: query pulls API for recently merged PRs, match merge_commit_sha.
+          PR_NUMBER=""
+          API="/repos/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=50"
+          PR_NUMBER=$(curl -fsSL -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com$API" \
+            | jq -r --arg sha "$SHA" '.[] | select(.merged_at != null and .merge_commit_sha == $sha) | .number' \
+            | head -n1 || true)
+
+          echo "PR_NUMBER from strategy A: '${PR_NUMBER:-}'"
+
+          # Strategy B: gh CLI as fallback if strategy A returned nothing.
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(gh pr list --repo "$REPO" --state merged --limit 30 \
+              --json number,mergeCommitSha --jq ".[] | select(.mergeCommitSha == \"$SHA\") | .number" \
+              | head -n1 || true)
+            echo "PR_NUMBER from strategy B: '${PR_NUMBER:-}'"
+          fi
+
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            echo "::warning::No merged PR found for commit $SHA; running gate WITHOUT --pr (pr-merged rule FAILs by design — direct push to main)"
+            echo "number=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Resolved merged PR #$PR_NUMBER for commit $SHA"
+            echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Run the gate: collect evidence from GitHub REST API + evaluate ─
+      # NO continue-on-error. A PASS is required for the job (and thus the
+      # deploy job) to proceed. This is what makes gate a *blocker*.
+      - name: Gate — collect + evaluate (PASS required)
+        id: gate-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR_ARGS=""
+          PR_NUM="${{ steps.pr.outputs.number }}"
+          if [ -n "$PR_NUM" ] && [ "$PR_NUM" != "" ]; then
+            PR_ARGS="--pr $PR_NUM --task $PR_NUM"
+          fi
+
+          node bin/gate.mjs collect \
+            --owner "${{ github.repository_owner }}" \
+            --repo "${{ github.event.repository.name }}" \
+            --sha "${{ github.sha }}" \
+            --report "test-report" \
+            --branch "${{ github.ref_name }}" \
+            $PR_ARGS \
+            --json \
+            --output gate-result.json
+
+          echo "=== GATE VERDICT ==="
+          node -e "const v=require('./gate-result.json');console.log('verdict='+v.verdict);v.rules.forEach(r=>console.log(r.id+'='+r.verdict+' | '+r.message))"
+          echo "=== END VERDICT ==="
+
+      # ── Export verdict for downstream job conditions ────────────────
+      - name: Export gate verdict
+        id: gate-result
+        run: |
+          node -e "
+          const v=require('./gate-result.json');
+          const fs=require('fs');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'verdict='+v.verdict+'\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'commit-sha='+v.commitSha+'\n');
+          "
+          # Fail loudly if somehow the verdict wasn't PASS — belt & suspenders.
+          node -e "const v=require('./gate-result.json');process.exit(v.verdict==='PASS'?0:1)"
+
+      # ── Artifact: preserve the gate verdict for audit/rollback ──────
+      - name: Upload gate-result.json
+        if: always()   # keep the verdict even on FAIL
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-result-${{ github.sha }}
+          path: gate-result.json
+          retention-days: 90
+
+      - name: Post gate verdict as commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          state="failure"
+          if [ "${{ steps.gate-result.outputs.verdict }}" = "PASS" ]; then state="success"; fi
+          curl -fsSL -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -d "{\"state\":\"$state\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",\"description\":\"Gate verdict: ${{ steps.gate-result.outputs.verdict }}\",\"context\":\"deploy-gate\""
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 2 — deploy: ONLY runs if gate job succeeded (PASS verdict).
+  # needs: gate + the gate job's exit code guarantee that any FAIL
+  # physically prevents this job from starting.
+  # ─────────────────────────────────────────────────────────────────
+  deploy:
+    needs: gate           # gate FAIL → gate job fails → deploy job skipped
+    runs-on: ubuntu-latest
+    environment: production   # required: create a 'production' environment with reviewers and secrets
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify gate verdict (defensive)
+        run: |
+          echo "Deploying commit ${{ needs.gate.outputs.commit-sha }}"
+          echo "Gate verdict was: ${{ needs.gate.outputs.verdict }}"
+          [ "${{ needs.gate.outputs.verdict }}" = "PASS" ] || { echo "::error::Gate verdict is not PASS — deploy aborted"; exit 1; }
+
+      # ── Real deploy steps go here ─────────────────────────────────
+      # Replace the placeholder below with the project's actual deploy
+      # command: docker push, kubectl apply, rsync, serverless deploy, etc.
+      - name: Deploy
+        run: |
+          echo "::notice::✅ Gate PASSED — executing production deployment for ${{ needs.gate.outputs.commit-sha }}"
+          echo "TODO: connect DEPLOY_CMD / DEPLOY_TARGET secrets to the real deploy pipeline"
+          # Example (uncomment and wire to secrets):
+          #   docker build -t ${{ secrets.REGISTRY }}/${{ secrets.IMAGE }}:${{ needs.gate.outputs.commit-sha }} . \
+          #     && docker push ${{ secrets.REGISTRY }}/${{ secrets.IMAGE }}:${{ needs.gate.outputs.commit-sha }}
+          #   kubectl set image deployment/${{ secrets.APP_NAME }} app=${{ secrets.REGISTRY }}/${{ secrets.IMAGE }}:${{ needs.gate.outputs.commit-sha }}
+
+      - name: Record deployment (GitHub deployments API)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DEPLOY_ID=$(curl -fsSL -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/deployments \
+            -d "{\"ref\":\"${{ github.sha }}\",\"environment\":\"production\",\"description\":\"Deployed via deploy-gate after gate PASS\",\"required_contexts\":[]}" \
+            | jq -r '.id')
+          curl -fsSL -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/deployments/$DEPLOY_ID/statuses \
+            -d "{\"state\":\"success\",\"description\":\"Deployment succeeded\"}" || true
+          echo "::notice::Deployment $DEPLOY_ID recorded"
