@@ -20,8 +20,8 @@ Present and inspected:
 - `Dockerfile` — `node:22-alpine`, copies `package.json` + `bin/` + `src/`, ENTRYPOINT `node bin/gate.mjs`
 - `fixtures/pass.json` — 5/5 rules pass
 - `fixtures/fail.json` — CI failure + test failures → rejected
-- `test/evaluator.test.mjs` — unit tests for evaluator/report/CLI (33 tests)
-- `test/collector.test.mjs` — unit + §16.10 integration tests for collector (56 tests)
+- `test/evaluator.test.mjs` — unit tests for evaluator/report/CLI (61 tests)
+- `test/collector.test.mjs` — unit + §16.10 integration tests for collector (20 tests)
 - `.github/workflows/gate.yml` — CI workflow (created during this audit cycle)
 - `README.md` — offline + GitHub API usage docs
 
@@ -45,8 +45,8 @@ Result: PASS (exit code 0)
 ```
 
 Test files:
-- `test/evaluator.test.mjs` — 33 tests (evaluator rules, report formatters, CLI flags/exit codes, whitespace title rejection)
-- `test/collector.test.mjs` — 56 tests (fetchPage, collectAll, buildEvaluationDocument, §16.10 stubbed-fetch integration)
+- `test/evaluator.test.mjs` — 61 tests (evaluator rules, report formatters, CLI flags/exit codes, whitespace title rejection)
+- `test/collector.test.mjs` — 20 tests (fetchPage, collectAll, buildEvaluationDocument, §16.10 stubbed-fetch integration)
 
 Verified behavior: all five rules (including pr-merged), pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON, collector §16.10 end-to-end pipeline."
 
