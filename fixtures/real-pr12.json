@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "id": "DEPLOY-GATE",
+    "title": "Add deploy-gate workflow and DEPLOYMENT.md"
+  },
+  "change": {
+    "commitSha": "0483a111e78a1e0d1ebc8dbd7e13c798de87ff30",
+    "associatedTaskIds": ["DEPLOY-GATE"]
+  },
+  "ci": {
+    "checks": [
+      {
+        "name": "gate",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "testReport": {
+    "format": "json",
+    "path": "artifacts/test-report.json",
+    "exists": true
+  },
+  "metadata": {
+    "repository": "rdone44/github-actions-gate",
+    "pullRequest": 12,
+    "branch": "feat/deploy-gate-v1"
+  },
+  "pr": {
+    "state": "merged"
+  }
+}

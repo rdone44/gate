@@ -598,3 +598,25 @@ test("Rule 1 PASS: evaluate does not throw when task.title has leading/trailing 
   const rule = r.rules.find((x) => x.id === "task-associated");
   assert.equal(rule.verdict, "PASS");
 });
+
+// ---------- v1.0.0 — real PR #12 regression lock ----------
+
+test("real PR #12 fixture yields verdict=PASS", () => {
+  const doc = read("../fixtures/real-pr12.json");
+  const r = evaluate(doc);
+  assert.equal(r.verdict, "PASS");
+  assert.equal(r.summary.passed, 5);
+  assert.equal(r.summary.failed, 0);
+  assert.equal(r.summary.total, 5);
+  assert.equal(r.taskId, "DEPLOY-GATE");
+  assert.equal(r.commitSha, "0483a111e78a1e0d1ebc8dbd7e13c798de87ff30");
+});
+
+test("CLI: real PR #12 fixture exits 0 and --json shows PASS", () => {
+  const file = new URL("../fixtures/real-pr12.json", import.meta.url).pathname;
+  const { stdout, exitCode } = runGate(["evaluate", "--input", file, "--json"]);
+  assert.equal(exitCode, 0);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.verdict, "PASS");
+  assert.equal(parsed.summary.total, 5);
+});
