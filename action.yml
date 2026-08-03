@@ -1,5 +1,8 @@
 name: "GitHub Actions Gate"
 description: "Deterministic acceptance gate — verifies task + commit + CI + test report before delivery."
+branding:
+  color: blue
+  icon: shield
 inputs:
   fixture-path:
     description: "Path to evaluation JSON"
