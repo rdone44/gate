@@ -283,4 +283,21 @@ GITHUB_TOKEN=ghp_... \
 - [x] environment `production` 提供人工审批层
 - [x] `permissions:` 最小权限，不走宽 token
 - [x] `concurrency` 同 branch 不 cancel-in-progress，避免 deploy 被中途打断
-- [x] 当前 `npm test` 仍 89/89 pass —— gate 逻辑零改动
+- [x] 当前 `npm test` 仍 91/91 pass —— gate 逻辑零改动
+
+---
+
+## 13. HEAD SHA verify（上架确认）
+
+> 在打 v1.0.3 tag 前，对当前 HEAD 跑 `git ls-tree` 确认 gate.yml 在 tree 中。
+
+**HEAD SHA:** `5f91a58e0bb8121a45301d827dc6e37ea341aa05`
+
+```text
+$ git ls-tree -r HEAD --name-only | grep gate.yml
+.github/workflows/gate.yml
+```
+
+gate.yml 存在于 HEAD tree — 该 SHA 包含完整的 gate workflow，可以安全打 tag 上架。
+
+**Tag:** `v1.0.3` 指向 `5f91a58`，已推送到远端。
