@@ -21,7 +21,7 @@ permissions:
   contents: read        # checkout
   actions: read         # collector reads check-runs / artifacts via REST API
   deployments: write    # deploy step creates a GitHub deployment record
-  statuses: read        # collector may read commit status
+  statuses: write       # gate posts commit status (POST /repos/.../statuses)
 
 concurrency:
   group: deploy-gate-${{ github.ref }}
@@ -39,13 +39,13 @@ jobs:
       verdict: ${{ steps.gate-result.outputs.verdict }}
       commit-sha: ${{ steps.gate-result.outputs.commit-sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history not needed, but fetch-depth:0 lets collector see merge context.
           # Shallow checkout is sufficient for collect (it hits the REST API for evidence).
           fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -137,7 +137,7 @@ jobs:
       # ── Artifact: preserve the gate verdict for audit/rollback ──────
       - name: Upload gate-result.json
         if: always()   # keep the verdict even on FAIL
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: gate-result-${{ github.sha }}
           path: gate-result.json
@@ -166,7 +166,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: production   # required: create a 'production' environment with reviewers and secrets
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
