@@ -2,7 +2,7 @@
 
 Status: PASS
 
-Audit time: 2026-07-31T09:09:00+08:00
+Audit time: 2026-08-07T12:07:00+08:00
 Auditor: live
 
 ## Scope inspected
@@ -21,7 +21,7 @@ Present and inspected:
 - `fixtures/pass.json` — 5/5 rules pass
 - `fixtures/fail.json` — CI failure + test failures → rejected
 - `test/evaluator.test.mjs` — unit tests for evaluator/report/CLI (61 tests)
-- `test/collector.test.mjs` — unit + §16.10 integration tests for collector (20 tests)
+- `test/collector.test.mjs` — unit + §16.10 integration tests for collector (23 tests)
 - `.github/workflows/gate.yml` — CI workflow (created during this audit cycle)
 - `README.md` — offline + GitHub API usage docs
 
@@ -38,15 +38,15 @@ Environment:
 Result: PASS (exit code 0)
 
 ```
-ℹ tests 81
-ℹ pass 81
+ℹ tests 84
+ℹ pass 84
 ℹ fail 0
-ℹ duration_ms 2450
+ℹ duration_ms 2170
 ```
 
 Test files:
 - `test/evaluator.test.mjs` — 61 tests (evaluator rules, report formatters, CLI flags/exit codes, whitespace title rejection)
-- `test/collector.test.mjs` — 20 tests (fetchPage, collectAll, buildEvaluationDocument, §16.10 stubbed-fetch integration)
+- `test/collector.test.mjs` — 23 tests (fetchPage, collectAll, buildEvaluationDocument, §16.10 stubbed-fetch integration)
 
 Verified behavior: all five rules (including pr-merged), pass/fail fixtures, short-SHA acceptance, non-hex rejection, missing CI run, zero/failing test reports, `formatReport` output containing `PASS`/`FAIL`, `formatJson` output parsing as valid JSON, collector §16.10 end-to-end pipeline."
 
@@ -177,10 +177,10 @@ No external GitHub API call is made by the workflow — it only exercises the of
 | ---                                                      | ---     | ---      |
 | Product specification exists                             | PASS    | `PRODUCT_SPEC.md` defines users, workflow, contracts, five rules, and checklist. |
 | Node.js ESM evaluator, CLI, and report formatter         | PASS    | `src/evaluator.mjs` (5 rules), `bin/gate.mjs`, `src/report.mjs`; `"type": "module"` in `package.json`. |
-| Five deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` + `test/collector.test.mjs` — 81/81 pass (incl. pr-merged, whitespace title rejection). |
+| Five deterministic rules                                 | PASS    | Covered by `test/evaluator.test.mjs` + `test/collector.test.mjs` — 84/84 pass (incl. pr-merged, whitespace title rejection). |
 | Machine and terminal reports                             | PASS    | `formatJson()` returns valid JSON; `formatReport()` returns human-readable text containing `PASS`/`FAIL`. Both exercised by tests + real CLI runs. |
 | Offline fixtures and example                             | PASS    | `fixtures/pass.json` exits 0; `fixtures/fail.json` exits 1; both verified via `node bin/gate.mjs evaluate --input`. |
-| Automated tests                                          | PASS    | Real `npm test` run: 81/81 passed (61 evaluator + 20 collector), 2.45s. |
+| Automated tests                                          | PASS    | Real `npm test` run: 84/84 passed (61 evaluator + 23 collector), 2.17s. |
 | Docker packaging                                         | PASS    | Image built; PASS fixture exits 0 in container; FAIL fixture exits 1. |
 | GitHub Actions usage                                     | PASS    | `.github/workflows/gate.yml` is valid YAML; defines `gate` job exercising tests, fixtures, and Docker build. Run on hosted runners; applicable tag pushes fail without gate passing. |
 | GitHub Action wrapper                                    | PASS    | `action.yml` declares `using: docker`, `image: Dockerfile`. |
@@ -201,7 +201,7 @@ No external GitHub API call is made by the workflow — it only exercises the of
   | pr-merged | FAIL | PR state is open, not merged. |
 
   This confirms the collector→evaluate pipeline works end-to-end against a real GitHub API on hosted runners. The FAIL verdict is the correct, expected outcome: PR #8 was open (not merged), had no check-runs at push time, and had no test-report artifact — the gate correctly rejected it. Previous gap "hosted Actions run pending" is resolved.
-- **GitHub collector mode shipped (v0.3.0–v0.5.3).** `src/collector.mjs` and `bin/gate.mjs collect` are now implemented and tested (81/81 pass including §16.10 stubbed-fetch integration tests). The previous gap — CLI only performing offline evaluation — is resolved. Commit `d5ec4e1` adds whitespace-only task.title rejection (v0.5.3).
+- **GitHub collector mode shipped (v0.3.0–v0.5.3).** `src/collector.mjs` and `bin/gate.mjs collect` are now implemented and tested (84/84 pass including §16.10 stubbed-fetch integration tests). The previous gap — CLI only performing offline evaluation — is resolved. Commit `d5ec4e1` adds whitespace-only task.title rejection (v0.5.3).
 - Previous audit (2026-07-19) referenced file paths `bin/github-actions-gate.js`, `lib/evaluator.js`, `lib/github.js` that do not exist — that report was erroneous. Real paths are `bin/gate.mjs`, `src/evaluator.mjs`, `src/report.mjs` as documented here.
 
 ## Docker Action end-to-end (nektos/act)
