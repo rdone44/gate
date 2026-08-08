@@ -20,8 +20,17 @@ jobs:
 
       - run: npm test
 
+      - run: ./bin/generate-test-report.mjs
+        name: Generate test-report.json artifact for gate rule 4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-report.json
+        name: Upload test-report artifact
+
       - if: github.event_name == 'pull_request'
-        run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --output gate-result.json
+        run: node bin/gate.mjs collect --owner rdone44 --repo github-actions-gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --report "test-report" --output gate-result.json
         name: Collector — real GITHUB_TOKEN, evaluate + write verdict to gate-result.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
