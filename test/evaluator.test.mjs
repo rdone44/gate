@@ -558,6 +558,50 @@ describe("CLI flags and exit codes", () => {
     expect(rule.message).toMatch(/empty/);
   });
 
+describe("watch-mode CLI flag validation", () => {
+  it("--interval below 10 exits 2", () => {
+    const { exitCode, stderr } = runGate([
+      "watch", "--owner", "o", "--repo", "r", "--sha", "3113c8e9ec9f228233f9ee981f2c69d78637df23",
+      "--interval", "5",
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toMatch(/--interval/);
+  });
+
+  it("--help shows watch subcommand", () => {
+    const { stdout, exitCode } = runGate(["--help"]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/watch\s+--owner/);
+    expect(stdout).toMatch(/--interval\s+<sec>/);
+    expect(stdout).toMatch(/--pass-once/);
+  });
+
+  it("missing --owner for watch exits 2", () => {
+    const { exitCode, stderr } = runGate([
+      "watch", "--repo", "r", "--sha", "3113c8e9ec9f228233f9ee981f2c69d78637df23",
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toMatch(/missing required --owner/);
+  });
+
+  it("invalid --interval value (non-int) exits 2", () => {
+    const { exitCode, stderr } = runGate([
+      "watch", "--owner", "o", "--repo", "r", "--sha", "3113c8e9ec9f228233f9ee981f2c69d78637df23",
+      "--interval", "abc",
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toMatch(/--interval/);
+  });
+
+  it("watch without sha exits 2", () => {
+    const { exitCode, stderr } = runGate([
+      "watch", "--owner", "o", "--repo", "r",
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toMatch(/missing required --sha/);
+  });
+});
+
   it("real PR #12 fixture evaluates to verdict=PASS", () => {
     const doc = read("../fixtures/real-pr12.json");
     const r = evaluate(doc);

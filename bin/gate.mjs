@@ -24,6 +24,7 @@ function printHelp() {
   const out = [
     `Usage: ${PROG} evaluate --input <path|-> [--output <path>] [--json] [--quiet]`,
     `       ${PROG} collect --owner <o> --repo <r> --sha <40-hex> [--task <id>] [--report <name>] [--branch <name>] [--pr <number>] [--output <path>] [--json] [--quiet]`,
+    `       ${PROG} watch --owner <o> --repo <r> --sha <40-hex> [--interval <sec>] [--pass-once] [--task <id>] [--report <name>] [--branch <name>] [--pr <number>] [--json] [--quiet]`,
     `       ${PROG} --help`,
     `       ${PROG} --version`,
     "",
@@ -53,6 +54,11 @@ function printHelp() {
     "  --output <path>           Same as evaluate --output.",
     "  --json                    Same as evaluate --json.",
     "  --quiet                   Same as evaluate --quiet.",
+    "",
+    "Options (watch):",
+    "  All collect flags plus:",
+    "  --interval <seconds>      Poll interval in seconds (default 60, min 10).",
+    "  --pass-once               Exit immediately after first PASS (default: run until Ctrl+C).",
     "",
     "Environment:",
     "  GITHUB_TOKEN               Required for collect; sent only to api.github.com.",
@@ -103,6 +109,8 @@ function parseArgs(argv) {
     report: undefined,
     branch: undefined,
     pr: undefined,
+    interval: undefined,
+    passOnce: false,
   };
   let i = 0;
 
@@ -116,6 +124,10 @@ function parseArgs(argv) {
       case "collect":
         if (command !== null) dieUsage(`unexpected second command '${a}'`);
         command = "collect";
+        break;
+      case "watch":
+        if (command !== null) dieUsage(`unexpected second command '${a}'`);
+        command = "watch";
         break;
       case "--input": {
         if (opts.input !== undefined) dieUsage("--input given more than once");
@@ -197,6 +209,20 @@ function parseArgs(argv) {
         if (opts.quiet) dieUsage("--quiet given more than once");
         opts.quiet = true;
         break;
+      case "--interval": {
+        if (opts.interval !== undefined) dieUsage("--interval given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--interval requires a value");
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 10) dieUsage("--interval must be an integer >= 10");
+        opts.interval = n;
+        i += 1;
+        break;
+      }
+      case "--pass-once":
+        if (opts.passOnce) dieUsage("--pass-once given more than once");
+        opts.passOnce = true;
+        break;
       default:
         dieUsage(`unknown option '${a}'`);
     }
@@ -218,7 +244,16 @@ function parseArgs(argv) {
     return { command, ...opts };
   }
 
-  dieUsage("missing 'evaluate' or 'collect' command");
+  if (command === "watch") {
+    if (opts.owner === undefined) dieUsage("missing required --owner");
+    if (opts.repo === undefined) dieUsage("missing required --repo");
+    if (opts.sha === undefined) dieUsage("missing required --sha");
+    if (opts.json && opts.quiet) dieUsage("--json and --quiet are mutually exclusive");
+    if (opts.interval === undefined) opts.interval = 60;
+    return { command, ...opts };
+  }
+
+  dieUsage("missing 'evaluate', 'collect', or 'watch' command");
 }
 
 async function main() {
@@ -242,6 +277,70 @@ async function main() {
     } catch (e) {
       process.stderr.write(`${PROG}: invalid JSON: ${e.message}\n`);
       process.exit(2);
+    }
+  } else if (args.command === "watch") {
+    // watch — poll collect+evaluate on interval until PASS (if --pass-once) or Ctrl+C.
+    const { owner, repo, sha, task, report, branch, pr, interval, passOnce, json, quiet } = args;
+    let lastVerdict = null;
+    let poll = 0;
+
+    if (!quiet) {
+      const ts = () => new Date().toISOString();
+      process.stderr.write(`[${ts()}] watch start — ${owner}/${repo} sha=${sha} interval=${interval}s${passOnce ? " pass-once" : ""}\n`);
+    }
+
+    while (true) {
+      poll++;
+      let input, result;
+      try {
+        input = await buildEvaluationDocument(owner, repo, sha, {
+          taskId: task,
+          report: report,
+          branch: branch,
+          prNumber: pr ? parseInt(pr, 10) : null,
+        });
+      } catch (e) {
+        if (e instanceof CollectorError) {
+          process.stderr.write(`${PROG}: ${collectorMessage(e)}\n`);
+        } else {
+          process.stderr.write(`${PROG}: ${e.message}\n`);
+        }
+        process.stderr.write(`[poll ${poll}] collect failed — retrying in ${interval}s\n`);
+        await sleep(interval * 1000);
+        continue;
+      }
+
+      try {
+        result = evaluate(input);
+      } catch (e) {
+        if (e instanceof InputError || e.name === "InputError") {
+          process.stderr.write(`${PROG}: schema violation: ${e.message}\n`);
+        } else {
+          process.stderr.write(`${PROG}: ${e.message}\n`);
+        }
+        await sleep(interval * 1000);
+        continue;
+      }
+
+      const jsonText = formatJson(result);
+
+      if (!quiet) {
+        if (json) {
+          process.stdout.write(jsonText + "\n");
+        } else {
+          const ts = new Date().toISOString();
+          process.stdout.write(`[${ts}] poll ${poll}: ${formatSummary(result)}\n`);
+        }
+      }
+
+      const changed = lastVerdict !== result.verdict;
+      lastVerdict = result.verdict;
+
+      if (result.verdict === "PASS" && passOnce && changed) {
+        process.exit(0);
+      }
+
+      await sleep(interval * 1000);
     }
   } else {
     // collect — fetch from GitHub API.
@@ -320,3 +419,5 @@ function collectorMessage(e) {
 }
 
 await main();
+
+function sleep(ms) { return new Promise((r) => { setTimeout(r, ms); }); }
