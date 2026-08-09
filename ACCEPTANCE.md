@@ -7,7 +7,7 @@ Auditor: live
 
 ## Scope inspected
 
-Repository: `/root/github-actions-gate` (remote: `github.com/rdone44/github-actions-gate.git`, tags v0.1.0–v1.0.2 pushed)
+Repository: `/root/github-actions-gate` (remote: `github.com/rdone44/github-actions-gate.git`, tags v0.1.0–v1.0.7 pushed)
 
 Present and inspected:
 
@@ -169,7 +169,7 @@ $ echo $?
 4. runs the PASS and FAIL fixtures through the CLI (asserts FAIL exits 1);
 5. builds the Docker image and runs the PASS fixture inside the container.
 
-No external GitHub API call is made by the workflow — it only exercises the offline evaluator and fixtures. The remote `origin` is configured (github.com/rdone44/github-actions-gate.git) and tags `v0.1.0`–`v1.0.2` have been pushed, so the workflow is ready to execute on hosted Actions runners once a tagged push triggers it.
+No external GitHub API call is made by the workflow — it only exercises the offline evaluator and fixtures. The remote `origin` is configured (github.com/rdone44/github-actions-gate.git) and tags `v0.1.0`–`v1.0.2` have been pushed, so the workflow is ready to execute on hosted Actions runners once a tagged push triggers it. Tags `v1.0.3`–`v1.0.7` have since been pushed; the gate covers all versions through v1.0.7.
 
 ## Acceptance results
 
