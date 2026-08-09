@@ -36,6 +36,34 @@ if [ "$RP" != "0" ]; then
   REPORT+="❌ real-pr12.json 退出码=$RP (应为0)\n$(cat /tmp/gate-realpr12.log)\n"
 fi
 
+# 6. pr-merged-closed-not-merged fixture (expect exit 1, PR closed not merged)
+node bin/gate.mjs evaluate --input fixtures/pr-merged-closed-not-merged.json >/tmp/gate-prclosed.log 2>&1
+PC=$?
+if [ "$PC" != "1" ]; then
+  REPORT+="❌ pr-merged-closed-not-merged.json 退出码=$PC (应为1)\n$(cat /tmp/gate-prclosed.log)\n"
+fi
+
+# 7. pr-merged-empty fixture (expect exit 1, pr field empty)
+node bin/gate.mjs evaluate --input fixtures/pr-merged-empty.json >/tmp/gate-prempty.log 2>&1
+PEM=$?
+if [ "$PEM" != "1" ]; then
+  REPORT+="❌ pr-merged-empty.json 退出码=$PEM (应为1)\n$(cat /tmp/gate-prempty.log)\n"
+fi
+
+# 8. title-whitespace-only-fail fixture (expect exit 2, schema violation)
+node bin/gate.mjs evaluate --input fixtures/title-whitespace-only-fail.json >/tmp/gate-titlews.log 2>&1
+TW=$?
+if [ "$TW" != "2" ]; then
+  REPORT+="❌ title-whitespace-only-fail.json 退出码=$TW (应为2)\n$(cat /tmp/gate-titlews.log)\n"
+fi
+
+# 9. schema-violation-empty-task-id fixture (expect exit 2, schema violation)
+node bin/gate.mjs evaluate --input fixtures/schema-violation-empty-task-id.json >/tmp/gate-schema.log 2>&1
+SV=$?
+if [ "$SV" != "2" ]; then
+  REPORT+="❌ schema-violation-empty-task-id.json 退出码=$SV (应为2)\n$(cat /tmp/gate-schema.log)\n"
+fi
+
 if [ -n "$REPORT" ]; then
   echo "🔴 github-actions-gate 周巡检告警 ($(date '+%Y-%m-%d %H:%M'))"
   echo ""
