@@ -61,12 +61,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Extract PR number from squash-merge commit message: "title (#N)"
+          PR_NUM=$(git log --format='%s' -1 | sed -n 's/.*(#\([0-9]*\)).*/\1/p')
+          echo "Extracted PR number: ${PR_NUM:-none}"
+
           node bin/gate.mjs collect \
             --owner "${{ github.repository_owner }}" \
             --repo "${{ github.event.repository.name }}" \
             --sha "${{ github.sha }}" \
             --report "test-report" \
             --branch "${{ github.ref_name }}" \
+            ${PR_NUM:+--task "$PR_NUM" --pr "$PR_NUM"} \
             --json \
             --output gate-result.json
 
