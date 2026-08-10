@@ -2,3 +2,4 @@ node_modules/
 .pytest_cache/
 bin/act
 test-report.json
+gate-result.json
