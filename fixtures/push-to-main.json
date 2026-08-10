@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "id": "TASK-456",
+    "title": "Push release gate workflow to main"
+  },
+  "change": {
+    "commitSha": "3113c8e9ec9f228233f9ee981f2c69d78637df23",
+    "associatedTaskIds": [
+      "TASK-456"
+    ]
+  },
+  "ci": {
+    "checks": [
+      {
+        "name": "test",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  },
+  "testReport": {
+    "format": "json",
+    "path": "artifacts/test-report.json",
+    "exists": true
+  },
+  "metadata": {
+    "repository": "owner/repository",
+    "branch": "main",
+    "event": "push"
+  }
+}

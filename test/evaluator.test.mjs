@@ -602,6 +602,26 @@ describe("watch-mode CLI flag validation", () => {
   });
 });
 
+  it("push-to-main fixture → pr-merged FAIL (no pr field), verdict=FAIL", () => {
+    const doc = read("../fixtures/push-to-main.json");
+    expect(doc.pr).toBeUndefined();
+    const r = evaluate(doc);
+    expect(r.verdict).toBe("FAIL");
+    const rule = r.rules.find((x) => x.id === "pr-merged");
+    expect(rule.verdict).toBe("FAIL");
+    expect(rule.message).toMatch(/empty|no pr|absent/i);
+  });
+
+  it("push-to-main fixture passes other four rules", () => {
+    const doc = read("../fixtures/push-to-main.json");
+    const r = evaluate(doc);
+    expect(r.summary.passed).toBe(4);
+    expect(r.summary.failed).toBe(1);
+    expect(r.summary.total).toBe(5);
+    expect(r.commitSha).toBe("3113c8e9ec9f228233f9ee981f2c69d78637df23");
+    expect(r.taskId).toBe("TASK-456");
+  });
+
   it("real PR #12 fixture evaluates to verdict=PASS", () => {
     const doc = read("../fixtures/real-pr12.json");
     const r = evaluate(doc);
