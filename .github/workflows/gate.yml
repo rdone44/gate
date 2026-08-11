@@ -65,7 +65,7 @@ jobs:
           fi
           gh api \
             --method POST \
-            repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
             -f state="$STATE" \
             -f description="$DESC" \
             -f context="github-actions-gate" \
