@@ -59,6 +59,9 @@ function printHelp() {
     "",
     "  --config <path>           Load rule config from a JSON file (optional, all modes).",
     "",
+    "Options (collect + watch):",
+    "  --exclude-run-id <n>      Exclude check-runs from this Actions run ID (default: $GITHUB_RUN_ID).",
+    "",
     "Options (watch):",
     "  All collect flags plus:",
     "  --interval <seconds>      Poll interval in seconds (default 60, min 10).",
@@ -206,6 +209,14 @@ function parseArgs(argv) {
         i += 1;
         break;
       }
+      case "--exclude-run-id": {
+        if (opts.excludeRunId !== undefined) dieUsage("--exclude-run-id given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--exclude-run-id requires a value");
+        opts.excludeRunId = v;
+        i += 1;
+        break;
+      }
       case "--json":
         if (opts.json) dieUsage("--json given more than once");
         opts.json = true;
@@ -322,6 +333,7 @@ async function main() {
           report: report,
           branch: branch,
           prNumber: pr ? parseInt(pr, 10) : null,
+          excludeRunId: args.excludeRunId || process.env.GITHUB_RUN_ID || null,
         });
       } catch (e) {
         if (e instanceof CollectorError) {
@@ -374,6 +386,7 @@ async function main() {
         report: args.report,
         branch: args.branch,
         prNumber: args.pr ? parseInt(args.pr, 10) : null,
+        excludeRunId: args.excludeRunId || process.env.GITHUB_RUN_ID || null,
       });
     } catch (e) {
       if (e instanceof CollectorError) {

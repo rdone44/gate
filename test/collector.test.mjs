@@ -107,6 +107,52 @@ test("§16 collect: full PASS pipeline via stubs", async () => {
   expect(r.verdict).toBe("PASS");
 });
 
+test("§16 collect: excludeRunId filters out check-runs from current run", async () => {
+  const api = makeApi({
+    commitBody: { sha: VALID_SHA },
+    checkRuns: [
+      { name: "gate", status: "completed", conclusion: "success", details_url: "https://github.com/owner/repo/actions/runs/111/job/1" },
+      { name: "deploy", status: "in_progress", conclusion: null, details_url: "https://github.com/owner/repo/actions/runs/222/job/2" },
+    ],
+    artifacts: [{ name: "test-report", expired: false, archive_download_url: "https://x/y/test-report.zip" }],
+    prBody: { state: "closed", merged_at: "2026-01-01T00:00:00Z" },
+  });
+  const doc = await buildEvaluationDocument("owner", "repo", VALID_SHA, {
+    taskId: "TASK-1",
+    report: "test-report",
+    prNumber: 42,
+    excludeRunId: "222",
+  }, api);
+
+  // Only the "gate" check should survive — "deploy" (run 222) excluded.
+  expect(doc.ci.checks.length).toBe(1);
+  expect(doc.ci.checks[0].name).toBe("gate");
+  const r = evaluate(doc);
+  expect(r.verdict).toBe("PASS");
+});
+
+test("§16 collect: without excludeRunId all check-runs are included", async () => {
+  const api = makeApi({
+    commitBody: { sha: VALID_SHA },
+    checkRuns: [
+      { name: "gate", status: "completed", conclusion: "success", details_url: "https://github.com/owner/repo/actions/runs/111/job/1" },
+      { name: "deploy", status: "in_progress", conclusion: null, details_url: "https://github.com/owner/repo/actions/runs/222/job/2" },
+    ],
+    artifacts: [{ name: "test-report", expired: false, archive_download_url: "https://x/y/test-report.zip" }],
+    prBody: { state: "closed", merged_at: "2026-01-01T00:00:00Z" },
+  });
+  const doc = await buildEvaluationDocument("owner", "repo", VALID_SHA, {
+    taskId: "TASK-1",
+    report: "test-report",
+    prNumber: 42,
+    // no excludeRunId
+  }, api);
+
+  expect(doc.ci.checks.length).toBe(2);
+  const r = evaluate(doc);
+  expect(r.verdict).toBe("FAIL");
+});
+
 test("§16 collect: missing --task → task.id='<none>', rule 1 FAILs", async () => {
   const api = makeApi({
     commitBody: { sha: VALID_SHA },

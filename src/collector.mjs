@@ -197,7 +197,7 @@ export async function buildEvaluationDocument(
   owner,
   repo,
   sha,
-  { taskId = null, report = null, branch = null, prNumber = null } = {},
+  { taskId = null, report = null, branch = null, prNumber = null, excludeRunId = null } = {},
   api = { fetchPage, collectAll, token: process.env.GITHUB_TOKEN || "" }
 ) {
   // Validate SHA format early (mirrors evaluator's HEX40).
@@ -232,10 +232,19 @@ export async function buildEvaluationDocument(
   }
 
   // 2. Fetch check-runs: paginated.
+  //    If excludeRunId is set (GITHUB_RUN_ID), filter out check-runs from
+  //    the current workflow run — a deploy-gate run should not gate on itself.
   const checkRunsPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${sha}/check-runs`;
   const checkRuns = await ca(checkRunsPath, token);
 
-  const checks = checkRuns.map((cr) => ({
+  const filteredRuns = excludeRunId
+    ? checkRuns.filter((cr) => {
+        const url = cr.details_url || "";
+        return !url.includes(`/runs/${excludeRunId}/`);
+      })
+    : checkRuns;
+
+  const checks = filteredRuns.map((cr) => ({
     name: cr.name,
     status: cr.status,
     conclusion: cr.conclusion === null || cr.conclusion === undefined ? "null" : String(cr.conclusion),
