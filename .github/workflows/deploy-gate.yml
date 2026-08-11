@@ -80,7 +80,11 @@ jobs:
           echo "=== END VERDICT ==="
 
       # ── Export verdict for downstream job conditions ────────────────
+      # if: always() runs even when Gate — collect + evaluate fails (exit 1).
+      # Without this, gate FAIL skips Export → outputs empty → commit status
+      # description is blank ("Gate verdict: ").
       - name: Export gate verdict
+        if: always()
         id: gate-result
         run: |
           node -e "
@@ -89,8 +93,6 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT,'verdict='+v.verdict+'\n');
           fs.appendFileSync(process.env.GITHUB_OUTPUT,'commit-sha='+v.commitSha+'\n');
           "
-          # Fail loudly if somehow the verdict wasn't PASS — belt & suspenders.
-          node -e "const v=require('./gate-result.json');process.exit(v.verdict==='PASS'?0:1)"
 
       # ── Artifact: preserve the gate verdict for audit/rollback ──────
       - name: Upload gate-result.json
