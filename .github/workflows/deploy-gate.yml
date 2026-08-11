@@ -13,9 +13,11 @@ name: deploy-gate
 # ─────────────────────────────────────────────────────────────────────
 
 on:
-  push:
+  workflow_run:
+    workflows: [gate]
+    types: [completed]
     branches: [main, master]
-  workflow_dispatch: # manual trigger — for ad-hoc unleashes or incident rollback verification
+  workflow_dispatch:
 
 permissions:
   contents: read        # checkout
