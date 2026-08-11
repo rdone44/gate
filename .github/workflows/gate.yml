@@ -45,6 +45,37 @@ jobs:
         continue-on-error: true
 
       - if: github.event_name == 'pull_request'
+        name: Export verdict to job outputs
+        run: |
+          VERDICT=$(node -e "console.log(require('./gate-result.json').verdict)")
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+          echo "Exported verdict=$VERDICT"
+        id: gate-verdict
+
+      - if: github.event_name == 'pull_request'
+        name: Post commit status (success/failure) to GitHub
+        run: |
+          VERDICT=$(node -e "console.log(require('./gate-result.json').verdict)")
+          if [ "$VERDICT" = "PASS" ]; then
+            STATE="success"
+            DESC="Gate PASS — all rules passed"
+          else
+            STATE="failure"
+            DESC="Gate FAIL — one or more rules failed"
+          fi
+          gh api \
+            --method POST \
+            repos/${{ github.repository }}/statuses/${{ github.sha }} \
+            -f state="$STATE" \
+            -f description="$DESC" \
+            -f context="github-actions-gate" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - if: github.event_name == 'pull_request'
         run: |
           node -e "
           const v=require('./gate-result.json');
