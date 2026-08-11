@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { evaluate, validateInput, InputError } from "../src/evaluator.mjs";
 import { formatJson, formatSummary } from "../src/report.mjs";
 import { buildEvaluationDocument, CollectorError } from "../src/collector.mjs";
+import { loadConfigFile } from "../src/config.mjs";
 import { readFileSync as _r } from "node:fs";
 
 const PROG = "github-actions-gate";
@@ -25,6 +26,7 @@ function printHelp() {
     `Usage: ${PROG} evaluate --input <path|-> [--output <path>] [--json] [--quiet]`,
     `       ${PROG} collect --owner <o> --repo <r> --sha <40-hex> [--task <id>] [--report <name>] [--branch <name>] [--pr <number>] [--output <path>] [--json] [--quiet]`,
     `       ${PROG} watch --owner <o> --repo <r> --sha <40-hex> [--interval <sec>] [--pass-once] [--task <id>] [--report <name>] [--branch <name>] [--pr <number>] [--json] [--quiet]`,
+    `       All commands accept [--config <path>] to load rule configuration.`,
     `       ${PROG} --help`,
     `       ${PROG} --version`,
     "",
@@ -54,6 +56,8 @@ function printHelp() {
     "  --output <path>           Same as evaluate --output.",
     "  --json                    Same as evaluate --json.",
     "  --quiet                   Same as evaluate --quiet.",
+    "",
+    "  --config <path>           Load rule config from a JSON file (optional, all modes).",
     "",
     "Options (watch):",
     "  All collect flags plus:",
@@ -111,6 +115,7 @@ function parseArgs(argv) {
     pr: undefined,
     interval: undefined,
     passOnce: false,
+    config: undefined,
   };
   let i = 0;
 
@@ -223,6 +228,14 @@ function parseArgs(argv) {
         if (opts.passOnce) dieUsage("--pass-once given more than once");
         opts.passOnce = true;
         break;
+      case "--config": {
+        if (opts.config !== undefined) dieUsage("--config given more than once");
+        const v = argv[i + 1];
+        if (v === undefined) dieUsage("--config requires a value");
+        opts.config = v;
+        i += 1;
+        break;
+      }
       default:
         dieUsage(`unknown option '${a}'`);
     }
@@ -268,6 +281,17 @@ async function main() {
     process.exit(0);
   }
 
+  // Load config if --config flag was provided.
+  let gateConfig = null;
+  if (args.config) {
+    try {
+      gateConfig = loadConfigFile(args.config);
+    } catch (e) {
+      process.stderr.write(`${PROG}: config error: ${e.message}\n`);
+      process.exit(2);
+    }
+  }
+
   // Dispatch by command.
   let input;
   if (args.command === "evaluate") {
@@ -311,7 +335,7 @@ async function main() {
       }
 
       try {
-        result = evaluate(input);
+        result = evaluate(input, gateConfig);
       } catch (e) {
         if (e instanceof InputError || e.name === "InputError") {
           process.stderr.write(`${PROG}: schema violation: ${e.message}\n`);
@@ -363,7 +387,7 @@ async function main() {
 
   let result;
   try {
-    result = evaluate(input);
+    result = evaluate(input, gateConfig);
   } catch (e) {
     if (e instanceof InputError || e.name === "InputError") {
       process.stderr.write(`${PROG}: schema violation: ${e.message}\n`);

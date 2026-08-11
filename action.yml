@@ -1,16 +1,93 @@
 name: "GitHub Actions Gate"
-description: "Deterministic acceptance gate — verifies task + commit + CI + test report before delivery."
+description: "Deterministic acceptance gate — verifies task + commit + CI + test report + PR merge before delivery. Supports evaluate (offline) and collect (live GitHub API) modes."
 branding:
   color: blue
   icon: shield
+
 inputs:
+  mode:
+    description: "Gate mode: 'evaluate' (offline JSON) or 'collect' (live GitHub API). Default: evaluate."
+    required: false
+    default: "evaluate"
   fixture-path:
-    description: "Path to evaluation JSON"
-    required: true
+    description: "Path to evaluation JSON (evaluate mode only)."
+    required: false
+    default: ""
+  owner:
+    description: "GitHub repo owner (collect mode only)."
+    required: false
+    default: ""
+  repo:
+    description: "GitHub repo name (collect mode only)."
+    required: false
+    default: ""
+  sha:
+    description: "Commit SHA to gate (collect mode only). 40 hex chars."
+    required: false
+    default: ""
+  task:
+    description: "Task ID for task-associated rule (collect mode only). Optional."
+    required: false
+    default: ""
+  pr:
+    description: "PR number for pr-merged rule (collect mode only). Optional."
+    required: false
+    default: ""
+  report:
+    description: "Test report artifact name (collect mode only). Optional."
+    required: false
+    default: ""
+  branch:
+    description: "Branch name (collect mode only). Optional, informational."
+    required: false
+    default: ""
+  json-output:
+    description: "Output JSON instead of human-readable summary. Default: false."
+    required: false
+    default: "false"
+
 runs:
-  using: "docker"
-  image: "Dockerfile"
-  args:
-    - evaluate
-    - --input
-    - ${{ inputs.fixture-path }}
+  using: "composite"
+  steps:
+    - name: Checkout gate repo
+      uses: actions/checkout@v5
+      with:
+        repository: rdone44/gate
+        ref: v1.0.7
+        path: gate-action
+        fetch-depth: 1
+
+    - name: Setup Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: "22"
+
+    - name: Install gate deps
+      shell: bash
+      run: cd gate-action && npm install
+
+    - name: Run gate (evaluate mode)
+      if: inputs.mode == 'evaluate'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+      run: |
+        cd gate-action
+        ARGS="evaluate --input ${{ inputs.fixture-path }}"
+        if [ "${{ inputs.json-output }}" = "true" ]; then ARGS="$ARGS --json"; fi
+        node bin/gate.mjs $ARGS
+
+    - name: Run gate (collect mode)
+      if: inputs.mode == 'collect'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+      run: |
+        cd gate-action
+        ARGS="collect --owner ${{ inputs.owner }} --repo ${{ inputs.repo }} --sha ${{ inputs.sha }}"
+        if [ -n "${{ inputs.task }}" ]; then ARGS="$ARGS --task ${{ inputs.task }}"; fi
+        if [ -n "${{ inputs.pr }}" ]; then ARGS="$ARGS --pr ${{ inputs.pr }}"; fi
+        if [ -n "${{ inputs.report }}" ]; then ARGS="$ARGS --report ${{ inputs.report }}"; fi
+        if [ -n "${{ inputs.branch }}" ]; then ARGS="$ARGS --branch ${{ inputs.branch }}"; fi
+        if [ "${{ inputs.json-output }}" = "true" ]; then ARGS="$ARGS --json"; fi
+        node bin/gate.mjs $ARGS

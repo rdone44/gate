@@ -2,6 +2,9 @@
 // Pure evaluator for the GitHub Actions Gate.
 // Input:  canonical evaluation document (SPEC §6).
 // Output: { schemaVersion, verdict, taskId, commitSha, summary, rules }
+// v1.1.0: accepts optional config { rules: { "rule-id": false } } to disable rules.
+
+import { isRuleEnabled, defaultConfig } from "./config.mjs";
 
 const ALL_ZERO_SHA = "0".repeat(40);
 const HEX40 = /^[0-9a-f]{40}$/;
@@ -69,10 +72,14 @@ export function validateInput(input) {
   }
 }
 
-// SPEC §7 — always returns all four rule results, never short-circuits.
-export function evaluate(input) {
+// SPEC §7 — always returns all five rule results, never short-circuits.
+// v1.1.0: accepts optional config { rules: { "rule-id": false } } to disable rules.
+// A disabled rule always returns PASS with message "disabled by config".
+// The overall verdict only considers non-disabled rules.
+export function evaluate(input, config = null) {
   validateInput(input);
 
+  const cfg = config || defaultConfig();
   const taskId = input.task.id;
   const commitSha = input.change.commitSha;
   const associatedTaskIds = input.change.associatedTaskIds;
@@ -83,84 +90,110 @@ export function evaluate(input) {
 
   // Rule 1: task-associated — exact case-sensitive membership of task.id in associatedTaskIds.
   {
-    const passed = associatedTaskIds.includes(taskId);
-    rules.push({
-      id: "task-associated",
-      verdict: passed ? "PASS" : "FAIL",
-      message: passed
-        ? `Task ${taskId} is associated with the change.`
-        : `Task ${taskId} is not associated with the change.`,
-    });
+    if (!isRuleEnabled(cfg, "task-associated")) {
+      rules.push({ id: "task-associated", verdict: "PASS", message: "task-associated disabled by config." });
+    } else {
+      const passed = associatedTaskIds.includes(taskId);
+      rules.push({
+        id: "task-associated",
+        verdict: passed ? "PASS" : "FAIL",
+        message: passed
+          ? `Task ${taskId} is associated with the change.`
+          : `Task ${taskId} is not associated with the change.`,
+      });
+    }
   }
 
   // Rule 2: commit-exists — validated as 40-hex non-zero at schema time; here it always PASSes.
   // (A malformed or all-zero SHA is already rejected as an input error by validateInput.)
   {
-    rules.push({
-      id: "commit-exists",
-      verdict: "PASS",
-      message: `Commit ${commitSha} exists.`,
-    });
+    if (!isRuleEnabled(cfg, "commit-exists")) {
+      rules.push({ id: "commit-exists", verdict: "PASS", message: "commit-exists disabled by config." });
+    } else {
+      rules.push({
+        id: "commit-exists",
+        verdict: "PASS",
+        message: `Commit ${commitSha} exists.`,
+      });
+    }
   }
 
   // Rule 3: ci-passes — at least one check, every check completed+success.
   {
-    let passed = checks.length > 0;
-    let message;
-    if (passed) {
-      passed = checks.every((c) => c.status === "completed" && c.conclusion === "success");
-      if (passed) {
-        message = `All ${checks.length} CI check${checks.length === 1 ? "" : "s"} completed successfully.`;
-      } else {
-        const firstBad = checks.find((c) => !(c.status === "completed" && c.conclusion === "success"));
-        message = `CI check ${firstBad.name} is not successful: status=${firstBad.status}, conclusion=${firstBad.conclusion}.`;
-      }
+    if (!isRuleEnabled(cfg, "ci-passes")) {
+      rules.push({ id: "ci-passes", verdict: "PASS", message: "ci-passes disabled by config." });
     } else {
-      message = "No CI checks were provided.";
+      let passed = checks.length > 0;
+      let message;
+      if (passed) {
+        passed = checks.every((c) => c.status === "completed" && c.conclusion === "success");
+        if (passed) {
+          message = `All ${checks.length} CI check${checks.length === 1 ? "" : "s"} completed successfully.`;
+        } else {
+          const firstBad = checks.find((c) => !(c.status === "completed" && c.conclusion === "success"));
+          message = `CI check ${firstBad.name} is not successful: status=${firstBad.status}, conclusion=${firstBad.conclusion}.`;
+        }
+      } else {
+        message = "No CI checks were provided.";
+      }
+      rules.push({
+        id: "ci-passes",
+        verdict: passed ? "PASS" : "FAIL",
+        message,
+      });
     }
-    rules.push({
-      id: "ci-passes",
-      verdict: passed ? "PASS" : "FAIL",
-      message,
-    });
   }
 
   // Rule 4: test-report-exists — boolean authoritative in v0.1.x.
   {
-    const passed = testReport.exists === true && isNonEmptyString(testReport.path);
-    rules.push({
-      id: "test-report-exists",
-      verdict: passed ? "PASS" : "FAIL",
-      message: passed
-        ? `Test report exists at ${testReport.path}.`
-        : `Test report does not exist at ${testReport.path}.`,
-    });
+    if (!isRuleEnabled(cfg, "test-report-exists")) {
+      rules.push({ id: "test-report-exists", verdict: "PASS", message: "test-report-exists disabled by config." });
+    } else {
+      const passed = testReport.exists === true && isNonEmptyString(testReport.path);
+      rules.push({
+        id: "test-report-exists",
+        verdict: passed ? "PASS" : "FAIL",
+        message: passed
+          ? `Test report exists at ${testReport.path}.`
+          : `Test report does not exist at ${testReport.path}.`,
+      });
+    }
   }
 
   // Rule 5: pr_merged (SPEC v0.4.0) — FAIL if pr is absent/null (no evidence).
   // PASS only if pr.state === "merged". Any other state also FAILs.
   {
-    const pr = input.pr;
-    let passed;
-    let message;
-    if (pr === undefined || pr === null) {
-      passed = false;
-      message = "No PR evidence; pr field is empty — FAIL (PR required).";
+    if (!isRuleEnabled(cfg, "pr-merged")) {
+      rules.push({ id: "pr-merged", verdict: "PASS", message: "pr-merged disabled by config." });
     } else {
-      passed = pr.state === "merged";
-      message = passed
-        ? `PR state is merged.`
-        : `PR state is ${pr.state}, not merged.`;
+      const pr = input.pr;
+      let passed;
+      let message;
+      if (pr === undefined || pr === null) {
+        passed = false;
+        message = "No PR evidence; pr field is empty — FAIL (PR required).";
+      } else {
+        passed = pr.state === "merged";
+        message = passed
+          ? `PR state is merged.`
+          : `PR state is ${pr.state}, not merged.`;
+      }
+      rules.push({
+        id: "pr-merged",
+        verdict: passed ? "PASS" : "FAIL",
+        message,
+      });
     }
-    rules.push({
-      id: "pr-merged",
-      verdict: passed ? "PASS" : "FAIL",
-      message,
-    });
   }
 
-  const passedCount = rules.filter((r) => r.verdict === "PASS").length;
-  const verdict = passedCount === rules.length ? "PASS" : "FAIL";
+  // Overall verdict: PASS only if all enabled rules pass.
+  // Disabled rules always PASS and don't affect the verdict.
+  const enabledRules = rules.filter((r) => {
+    const ruleId = r.id;
+    return isRuleEnabled(cfg, ruleId);
+  });
+  const passedCount = enabledRules.filter((r) => r.verdict === "PASS").length;
+  const verdict = passedCount === enabledRules.length ? "PASS" : "FAIL";
 
   return {
     schemaVersion: 1,

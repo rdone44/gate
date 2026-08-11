@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import { evaluate, validateInput, InputError } from "../src/evaluator.mjs";
 import { formatJson, formatSummary, buildReport } from "../src/report.mjs";
+import { parseConfig, ConfigError } from "../src/config.mjs";
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8"));
 const passFixture = read("../fixtures/pass.json");
@@ -631,5 +632,46 @@ describe("watch-mode CLI flag validation", () => {
     expect(r.summary.total).toBe(5);
     expect(r.taskId).toBe("DEPLOY-GATE");
     expect(r.commitSha).toBe("0483a111e78a1e0d1ebc8dbd7e13c798de87ff30");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// config.mjs rule-toggle tests (v1.1.0)
+// ─────────────────────────────────────────────────────────────────
+
+describe("config rule toggles", () => {
+  const failDoc = read("../fixtures/fail.json");
+  // fail.json FAILs: task-associated (TASK-123 not in [OTHER-999]),
+  //                  ci-passes (status=in_progress),
+  //                  test-report-exists (exists=false)
+  //        PASSes: commit-exists, pr-merged (state=merged)
+
+  it("disabling a single rule forces it to PASS with 'disabled' message", () => {
+    const cfg = { rules: { "ci-passes": false } };
+    const r = evaluate(failDoc, cfg);
+    const rule = r.rules.find((x) => x.id === "ci-passes");
+    expect(rule.verdict).toBe("PASS");
+    expect(rule.message).toMatch(/disabled by config/i);
+  });
+
+  it("global verdict excludes disabled rules — fail fixture PASSes if all failing rules disabled", () => {
+    // Disable the 3 rules that FAIL in fail.json → remaining 2 PASS → verdict PASS
+    const cfg = {
+      rules: {
+        "task-associated": false,
+        "ci-passes": false,
+        "test-report-exists": false,
+      },
+    };
+    const r = evaluate(failDoc, cfg);
+    expect(r.verdict).toBe("PASS");
+    expect(r.summary.total).toBe(5);
+    // Disabled rules still appear in the output, all as PASS
+    expect(r.rules.every((x) => x.verdict === "PASS")).toBe(true);
+  });
+
+  it("invalid rule id in config throws ConfigError", () => {
+    expect(() => parseConfig(JSON.stringify({ rules: { "nonexistent-rule": false } })))
+      .toThrow(/unknown rule id/);
   });
 });
