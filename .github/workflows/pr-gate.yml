@@ -82,6 +82,7 @@ jobs:
 
       # ── Export verdict for downstream steps ─────────────────────────
       - name: Export gate verdict
+        if: always()
         id: gate-result
         run: |
           node -e "
