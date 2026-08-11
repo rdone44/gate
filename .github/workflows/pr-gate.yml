@@ -1,0 +1,117 @@
+name: pr-gate
+
+# ─────────────────────────────────────────────────────────────────────
+# PR Gate — pre-merge acceptance gate
+# ─────────────────────────────────────────────────────────────────────
+# Triggers on pull_request to main/master. Runs collect + evaluate
+# against the PR head SHA BEFORE the PR is mergeable.
+#
+# Gate PASS → posts "success" commit status to the PR head SHA.
+# Gate FAIL → posts "failure" commit status, also fails the CI check
+#              visible in the PR's "Checks" tab. This makes the gate a
+#              real merge blocker when branch protection requires the
+#              pr-gate check.
+#
+# This complements deploy-gate.yml (post-merge deployment blocker).
+# Together: pr-gate blocks bad PRs from merging; deploy-gate blocks
+# bad merges from deploying.
+# ─────────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+  pull-requests: read
+
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.gate-result.outputs.verdict }}
+      commit-sha: ${{ steps.gate-result.outputs.commit-sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - run: npm install
+
+      # ── Run the gate: collect evidence from GitHub REST API + evaluate ─
+      # Uses the PR number as the task ID (same convention as deploy-gate).
+      # The --pr flag sets the pr field so the pr-merged rule can be evaluated.
+      - name: Gate — collect + evaluate
+        id: gate-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          PR_NUM="${{ github.event.pull_request.number }}"
+          PR_HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "PR #${PR_NUM} head SHA: ${PR_HEAD_SHA}"
+
+          # Run the collector + evaluator. Gate FAIL (exit 1) will fail
+          # this step and the job — making the pr-gate check "fail" in
+          # the PR's Checks tab, which branch protection can require.
+          node bin/gate.mjs collect \
+            --owner "${{ github.repository_owner }}" \
+            --repo "${{ github.event.repository.name }}" \
+            --sha "${PR_HEAD_SHA}" \
+            --task "${PR_NUM}" \
+            --pr "${PR_NUM}" \
+            --report "test-report" \
+            --branch "${{ github.event.pull_request.head.ref }}" \
+            --json \
+            --output gate-result.json
+
+          echo "=== GATE VERDICT ==="
+          node -e "const v=require('./gate-result.json');console.log('verdict='+v.verdict);v.rules.forEach(r=>console.log(r.id+'='+r.verdict+' | '+r.message))"
+          echo "=== END VERDICT ==="
+
+      # ── Export verdict for downstream steps ─────────────────────────
+      - name: Export gate verdict
+        id: gate-result
+        run: |
+          node -e "
+          const v=require('./gate-result.json');
+          const fs=require('fs');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'verdict='+v.verdict+'\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'commit-sha='+v.commitSha+'\n');
+          "
+
+      # ── Artifact: preserve the gate verdict for audit ───────────────
+      - name: Upload gate-result.json
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: pr-gate-result-${{ github.event.pull_request.head.sha }}
+          path: gate-result.json
+          retention-days: 30
+
+      # ── Post gate verdict as commit status on the PR head SHA ──────
+      # This makes the gate result visible as a status check on the PR,
+      # which branch protection rules can require for merge.
+      - name: Post gate verdict as commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          state="failure"
+          if [ "${{ steps.gate-result.outputs.verdict }}" = "PASS" ]; then state="success"; fi
+          curl -fsSL -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}
+            -d "{\"state\":\"$state\",\"target_url\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\",\"description\":\"PR gate verdict: ${{ steps.gate-result.outputs.verdict }}\",\"context\":\"pr-gate\"}"
