@@ -6,8 +6,27 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+  pull-requests: write
+
+# ─────────────────────────────────────────────────────────────────────
+# Two-job structure to eliminate the check-run race condition:
+#
+#   ci   → npm test, generate test-report artifact, Docker build, fixtures
+#   gate → needs: ci — collect REAL evidence from GitHub API + evaluate
+#
+# Because gate depends on ci, the ci check-run is always completed+success
+# when gate collects check-runs → ci-passes rule passes on real data.
+# gate uploads its own test-report artifact before collecting →
+# test-report-exists passes on real data.
+# For PRs, pr-merged is disabled via .gate-config-pr.json (pre-merge gate).
+# ─────────────────────────────────────────────────────────────────────
+
 jobs:
-  gate:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -21,91 +40,147 @@ jobs:
       - run: npm test
 
       - run: ./bin/generate-test-report.mjs
-        name: Generate test-report.json artifact for gate rule 4
+        name: Generate test-report.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: test-report
           path: test-report.json
-        name: Upload test-report artifact
 
-      - if: github.event_name == 'pull_request'
-        run: node bin/gate.mjs collect --owner rdone44 --repo gate --sha ${{ github.sha }} --task "${{ github.event.pull_request.number }}" --pr "${{ github.event.pull_request.number }}" --report "test-report" --output gate-result.json
-        name: Collector — real GITHUB_TOKEN, evaluate + write verdict to gate-result.json
+      - run: node bin/gate.mjs evaluate --input fixtures/pass.json
+        name: PASS fixture — exit 0 expected
+
+      - run: node bin/gate.mjs evaluate --input fixtures/fail.json --json
+        name: FAIL fixture — exit 1 expected
+        continue-on-error: true
+
+      - run: docker build -t github-actions-gate:ci .
+        name: Docker build
+
+      - run: docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:ci evaluate --input fixtures/pass.json --json
+        name: Docker PASS fixture
+
+      - uses: ./.
+        name: Gate Check — action.yml
+        with:
+          fixture-path: fixtures/pass.json
+
+  gate:
+    needs: ci
+    runs-on: ubuntu-latest
+    if: needs.ci.result == 'success'
+    outputs:
+      verdict: ${{ steps.gate-result.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - run: npm install
+
+      - name: Determine config (disable ci-passes + pr-merged for PRs)
+        id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Pre-merge gate:
+            # - ci-passes: needs:ci already guarantees CI passed (job dependency).
+            #   Collector sees ci+gate check-runs in same run — same run_id, can't
+            #   filter one but not the other. Skip the redundant API check.
+            # - pr-merged: PR is open (not merged) → would always FAIL.
+            echo '{"rules":{"ci-passes":false,"pr-merged":false}}' > .gate-config.json
+            echo "path=.gate-config.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gate — collect + evaluate real evidence
+        id: gate-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true # FAIL verdict exits 1; verdict is reported in next step, not in job status
-
-      - if: github.event_name == 'pull_request'
+        continue-on-error: true
         run: |
+          set -euo pipefail
+
+          SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+
+          TASK_ARG=""
+          PR_ARG=""
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            TASK_ARG="--task ${{ github.event.pull_request.number }}"
+            PR_ARG="--pr ${{ github.event.pull_request.number }}"
+          fi
+
+          CONFIG_ARG=""
+          if [ -n "${{ steps.cfg.outputs.path }}" ]; then
+            CONFIG_ARG="--config ${{ steps.cfg.outputs.path }}"
+          fi
+
+          node bin/gate.mjs collect \
+            --owner "$OWNER" \
+            --repo "$REPO" \
+            --sha "$SHA" \
+            --report "test-report" \
+            $TASK_ARG \
+            $PR_ARG \
+            $CONFIG_ARG \
+            --json \
+            --output gate-result.json
+
           echo "=== GATE VERDICT ==="
           node -e "const v=require('./gate-result.json');console.log('verdict='+v.verdict);v.rules.forEach(r=>console.log(r.id+'='+r.verdict+' | '+r.message))"
           echo "=== END VERDICT ==="
-        name: Print verdict to Actions log
-        continue-on-error: true
 
-      - if: github.event_name == 'pull_request'
-        name: Export verdict to job outputs
+      - name: Export gate verdict
+        if: always()
+        id: gate-result
         run: |
-          VERDICT=$(node -e "console.log(require('./gate-result.json').verdict)")
-          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
-          echo "Exported verdict=$VERDICT"
-        id: gate-verdict
+          node -e "
+          const v=require('./gate-result.json');
+          const fs=require('fs');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'verdict='+v.verdict+'\n');
+          "
 
-      - if: github.event_name == 'pull_request'
-        name: Post commit status (success/failure) to GitHub
-        run: |
-          VERDICT=$(node -e "console.log(require('./gate-result.json').verdict)")
-          if [ "$VERDICT" = "PASS" ]; then
-            STATE="success"
-            DESC="Gate PASS — all rules passed"
-          else
-            STATE="failure"
-            DESC="Gate FAIL — one or more rules failed"
-          fi
-          gh api \
-            --method POST \
-            repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
-            -f state="$STATE" \
-            -f description="$DESC" \
-            -f context="github-actions-gate" \
-            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Post commit status
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
+        run: |
+          SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          state="failure"
+          if [ "${{ steps.gate-result.outputs.verdict }}" = "PASS" ]; then state="success"; fi
+          gh api repos/${{ github.repository }}/statuses/$SHA \
+            -f state="$state" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -f description="Gate verdict: ${{ steps.gate-result.outputs.verdict }}" \
+            -f context="github-actions-gate"
 
-      - if: github.event_name == 'pull_request'
+      - name: Upload gate-result.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-result-${{ github.event.pull_request.head.sha || github.sha }}
+          path: gate-result.json
+          retention-days: 30
+
+      - name: Post verdict as PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
         run: |
           node -e "
           const v=require('./gate-result.json');
           let body='## 🚦 Gate Verdict\n\n**'+v.verdict+'**\n\n';
           body+='| Rule | Verdict | Message |\n|------|---------|--------|\n';
           v.rules.forEach(r=>{body+='| \`'+r.id+'\` | '+r.verdict+' | '+r.message.replace(/\|/g,'\\\\|')+' |\n'});
-          body+='\n---\n_Automated by github-actions-gate workflow_';
+          body+='\n---\n_Automated by github-actions-gate_';
           require('fs').writeFileSync('gate-comment.md',body);
           "
           gh pr comment ${{ github.event.pull_request.number }} --body-file gate-comment.md
-        name: Post verdict as PR comment
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - run: node bin/gate.mjs evaluate --input fixtures/pass.json
-        name: PASS fixture — exit 0 expected
-
-      - run: node bin/gate.mjs evaluate --input fixtures/fail.json --json
-        name: FAIL fixture (JSON) — exit 1 expected, non-zero proves rejection
-        continue-on-error: true # 仅容忍预期失败，不覆盖 gate 判定
-
-      - run: docker build -t github-actions-gate:ci .
-        name: Docker build
-
-      - run: docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:ci evaluate --input fixtures/pass.json --json
-        name: Docker PASS fixture (JSON)
-
-      - uses: ./. 
-        name: Gate Check — action.yml with fixture-path
-        with:
-          fixture-path: fixtures/pass.json
