@@ -76,6 +76,138 @@ The Dockerfile copies `package.json` + `bin/` + `src/` only, so mount `fixtures/
 
 CI status: passing on `main`.
 
+## PR Gate — pre-merge gating
+
+`.github/workflows/pr-gate.yml` runs `collect` against the PR head SHA **before** the PR is mergeable, then posts a commit status (success/failure) and a verdict table as a PR comment.
+
+### How it works
+
+```
+pull_request to main
+        │
+        ▼
+   ┌─ ci ──────────────────────────────────┐
+   │ npm test → test-report artifact       │
+   │ Docker build → fixture validation     │
+   │ action.yml self-test                  │
+   └───────────────┬───────────────────────┘
+                   │ needs: ci (success)
+                   ▼
+   ┌─ gate ────────────────────────────────┐
+   │ .gate-config.json disables:          │
+   │   ci-passes  (ci job guarantees it)  │
+   │   pr-merged  (PR is open, not merged)│
+   │ collect → evaluate → gate-result.json│
+   │ post commit status to PR head SHA    │
+   │ post verdict table as PR comment     │
+   └───────────────────────────────────────┘
+```
+
+### .gate-config.json (pre-merge)
+
+The gate uses a config to disable rules that don't apply pre-merge:
+
+```json
+{
+  "rules": {
+    "ci-passes": false,
+    "pr-merged": false
+  }
+}
+```
+
+- **ci-passes** disabled: the `ci` job already guarantees tests pass (job dependency).
+- **pr-merged** disabled: the PR is open (not merged), so this rule would always fail pre-merge.
+
+### Required secrets
+
+| Secret | Used for |
+|---|---|
+| `GITHUB_TOKEN` | Collect evidence (read repo, check-runs, artifacts) |
+| `GH_PAT` | Post commit status + PR comment (needs `statuses:write`, `pull-requests:write`) |
+
+### Example: gate PRs in your own repo
+
+Copy `pr-gate.yml` into `.github/workflows/` and ensure the gate can find its evidence:
+
+```yaml
+# .github/workflows/pr-gate.yml
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+  pull-requests: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm test
+      - run: ./bin/generate-test-report.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-report.json
+
+  gate:
+    needs: ci
+    runs-on: ubuntu-latest
+    if: needs.ci.result == 'success'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: npm install
+      - name: Write pre-merge config
+        run: |
+          cat > .gate-config.json <<'EOF'
+          {"rules":{"ci-passes":false,"pr-merged":false}}
+          EOF
+      - name: Gate — collect + evaluate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node bin/gate.mjs collect \
+            --owner ${{ github.repository_owner }} \
+            --repo ${{ github.event.repository.name }} \
+            --sha ${{ github.event.pull_request.head.sha }} \
+            --task ${{ github.event.pull_request.number }} \
+            --pr ${{ github.event.pull_request.number }} \
+            --report "test-report" \
+            --config .gate-config.json \
+            --json \
+            --output gate-result.json
+      - name: Post commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+          STATE="failure"
+          VERDICT=$(node -e "console.log(require('./gate-result.json').verdict)")
+          [ "$VERDICT" = "PASS" ] && STATE="success"
+          gh api repos/${{ github.repository }}/statuses/$SHA \
+            -f state="$STATE" \
+            -f context="pr-gate" \
+            -f description="Gate verdict: $VERDICT"
+```
+
+This makes `pr-gate` a required status check in branch protection — PRs cannot merge until the gate passes.
+
 ## Reusable GitHub Action
 
 To use this repository as a reusable Action from another repo, reference `action.yml`:

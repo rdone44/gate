@@ -1,0 +1,174 @@
+name: pr-gate
+
+# ─────────────────────────────────────────────────────────────────────
+# PR Gate — pre-merge gate that runs on every pull_request to main.
+#
+# Runs `collect` against the PR head SHA and posts a commit status
+# (success/failure) to that SHA, before the PR is mergeable.
+#
+# This is the core product value: "gate PRs before they merge."
+# deploy-gate.yml is the post-merge safety net; pr-gate.yml is the
+# pre-merge blocker.
+#
+# Two-job structure (same as gate.yml):
+#   ci   → npm test, generate test-report artifact, Docker build, fixtures
+#   gate → needs: ci — collect REAL evidence from GitHub API + evaluate
+#
+# ci-passes and pr-merged rules are disabled via .gate-config.json:
+#   - ci-passes: needs:ci guarantees CI passed (job dependency).
+#   - pr-merged: PR is open (not merged) → would always FAIL pre-merge.
+# ─────────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+  pull-requests: write
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - run: npm install
+
+      - run: npm test
+
+      - run: ./bin/generate-test-report.mjs
+        name: Generate test-report.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-report.json
+
+      - run: node bin/gate.mjs evaluate --input fixtures/pass.json
+        name: PASS fixture — exit 0 expected
+
+      - run: node bin/gate.mjs evaluate --input fixtures/fail.json --json
+        name: FAIL fixture — exit 1 expected
+        continue-on-error: true
+
+      - run: docker build -t github-actions-gate:ci .
+        name: Docker build
+
+      - run: docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate:ci evaluate --input fixtures/pass.json --json
+        name: Docker PASS fixture
+
+      - uses: ./.  # action.yml in repo root
+        name: Gate Check — action.yml
+        with:
+          fixture-path: fixtures/pass.json
+
+  gate:
+    needs: ci
+    runs-on: ubuntu-latest
+    if: needs.ci.result == 'success'
+    outputs:
+      verdict: ${{ steps.gate-result.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - run: npm install
+
+      - name: Write pre-merge config (disable ci-passes + pr-merged)
+        run: |
+          cat > .gate-config.json <<'EOF'
+          {"rules":{"ci-passes":false,"pr-merged":false}}
+          EOF
+
+      - name: Gate — collect + evaluate real evidence
+        id: gate-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          SHA="${{ github.event.pull_request.head.sha }}"
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          node bin/gate.mjs collect \
+            --owner "$OWNER" \
+            --repo "$REPO" \
+            --sha "$SHA" \
+            --task "$PR_NUMBER" \
+            --pr "$PR_NUMBER" \
+            --report "test-report" \
+            --config .gate-config.json \
+            --json \
+            --output gate-result.json
+
+          echo "=== GATE VERDICT ==="
+          node -e "const v=require('./gate-result.json');console.log('verdict='+v.verdict);v.rules.forEach(r=>console.log(r.id+'='+r.verdict+' | '+r.message))"
+          echo "=== END VERDICT ==="
+
+      - name: Export gate verdict
+        if: always()
+        id: gate-result
+        run: |
+          node -e "
+          const v=require('./gate-result.json');
+          const fs=require('fs');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,'verdict='+v.verdict+'\n');
+          "
+
+      - name: Post commit status to PR head SHA
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+          state="failure"
+          if [ "${{ steps.gate-result.outputs.verdict }}" = "PASS" ]; then state="success"; fi
+          gh api repos/${{ github.repository }}/statuses/$SHA \
+            -f state="$state" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -f description="Gate verdict: ${{ steps.gate-result.outputs.verdict }}" \
+            -f context="pr-gate"
+
+      - name: Upload gate-result.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-result-${{ github.event.pull_request.head.sha }}
+          path: gate-result.json
+          retention-days: 30
+
+      - name: Post verdict as PR comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+        run: |
+          node -e "
+          const v=require('./gate-result.json');
+          let body='## 🚦 PR Gate Verdict\n\n**'+v.verdict+'**\n\n';
+          body+='| Rule | Verdict | Message |\n|------|---------|--------|\n';
+          v.rules.forEach(r=>{body+='| \`'+r.id+'\` | '+r.verdict+' | '+r.message.replace(/\|/g,'\\\\|')+' |\n'});
+          body+='\n---\n_Automated by github-actions-gate pr-gate_';
+          require('fs').writeFileSync('gate-comment.md',body);
+          "
+          gh pr comment ${{ github.event.pull_request.number }} --body-file gate-comment.md
