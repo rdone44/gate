@@ -90,7 +90,7 @@
 ### Phase 1: PR-level gate workflow
 - [x] T1: Create `.github/workflows/pr-gate.yml` — PR trigger, collect, status post ✅ `2026-08-12` — created; `on: pull_request` to main/master, runs collect with disabled ci-passes+pr-merged, posts commit status to PR head SHA, posts PR comment
 - [x] T2: Test pr-gate workflow syntax (actionlint or manual review) ✅ `2026-08-12` — actionlint 1.7.12 exit 0, zero errors
-- [ ] T3: Document PR gating in README + add fixture/example
+- [x] T3: Document PR gating in README + add fixture/example ✅ `2026-08-12` — README PR Gate section: architecture diagram, .gate-config.json explanation, secrets table, copy-paste workflow example
 
 ### Phase 2: Publish as GitHub Action
 - [ ] T4: Update action.yml — add `mode` input, collect-mode inputs
