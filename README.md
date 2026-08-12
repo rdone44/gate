@@ -323,3 +323,4 @@ docker run --rm -v "$PWD/fixtures:/app/fixtures" github-actions-gate fixtures/pa
 
 This product gates delivery on five fixed rules. It is not a CI/CD orchestrator, not a release manager, not a deployment tool. Any extension beyond the five-rule gate is out of scope and will not be developed.
 
+
