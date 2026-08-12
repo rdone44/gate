@@ -268,30 +268,30 @@ MIT
 
 This project is a deterministic gate CLI, not a production deployment system. Known limitations:
 
-- **No published releases.** Tags v1.0.3–v1.0.7 exist locally, but no GitHub Release or Docker image has been published to a registry. The Dockerfile builds locally only.
+- **Published releases (DONE).** Tags v1.0.3–v1.1.0 are pushed to remote, and v1.1.0 has a GitHub Release. Docker image remains local-only.
 - **No artifact distribution.** There is no npm publish target, no OCI image push, and no GitHub Release attachment. Consumers must clone and build from source.
 - **Fixture-only evaluation.** The `evaluate` subcommand operates on local JSON files only — it does not fetch live GitHub evidence. Use `collect` for live API-backed evaluation (requires `GITHUB_TOKEN`).
 - **Single-repo collector.** The `collect` subcommand fetches from one GitHub repo at a time. No multi-repo or org-level aggregation.
 - **No webhook/server mode.** The CLI is one-shot. There is no long-running process to auto-gate incoming PRs. The `watch` subcommand polls on an interval but is stateless.
-- **Security boundary: read-only.** The gate never writes to GitHub (no status checks, no comments, no merges). It produces a verdict for an external system to act on.
+- **PR-level gating (DONE).** `pr-gate.yml` posts commit status checks to PR head and blocks merge on gate failure. The gate still does not auto-merge or auto-comment beyond the status check.
 - **No auth for `evaluate`.** The `evaluate` subcommand needs no credentials. `collect` requires a `GITHUB_TOKEN` with `repo:read` scope minimum.
 - **Node.js 22+ only.** The Dockerfile pins `node:22-alpine`. Older Node versions are untested.
 
 ## Withdrawal notice
 
-**Status: maintenance complete, active development stopped as of v1.0.7.**
+**Status: maintenance mode, active development stopped as of v1.1.0.**
 
-This project is feature-complete for its original scope (deterministic five-rule delivery gate). No further functional development is planned. The repository stands as-is.
+This project is feature-complete for its revised scope (deterministic five-rule delivery gate + PR-level gating via GitHub Actions). No further functional development is planned. The repository stands as-is.
 
 ### Deliverables inventory
 
 | Item | Value | Status |
 |---|---|---|
-| Git tag | `v1.0.7` (commit `c42aed5`) | Pushed to `origin/main` |
-| Release | None | Not published via `gh release create` |
+| Git tag | `v1.1.0` (commit `4582e88`) | Pushed to `origin/main` |
+| Release | `v1.1.0` — PR-level Gate Workflow | Published via `gh release create` |
 | Docker image | None | Built locally only; never pushed to a registry |
 | npm package | None | Not published to npmjs.com |
-| GitHub Action | `action.yml` (Docker-based) | Referenced via `rdone44/gate@v1.0.7` but not published as a marketplace Action |
+| GitHub Action | `action.yml` (Docker-based) | Referenced via `rdone44/gate@v1.1.0` but not published as a marketplace Action |
 
 ### Installation
 
